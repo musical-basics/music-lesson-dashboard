@@ -9,6 +9,11 @@ interface HorizontalMusicContainerProps {
     songId: string
 }
 
+type BookmarkData = {
+    measureNumber: number;
+    pixelX: number;
+}
+
 export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicContainerProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -18,17 +23,18 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
     const [activeTool, setActiveTool] = useState<'scroll' | 'pen' | 'eraser'>('scroll')
     const [clearTrigger, setClearTrigger] = useState(0)
+    const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
 
-    // 1. OSMD Render Logic (Now with Race-Condition Protection)
     useEffect(() => {
         if (!containerRef.current) return
+        let isCancelled = false
 
-        // Create a flag to track if this specific effect instance is still valid
-        let isCancelled = false;
+        // 1. Reset
+        setIsLoaded(false)
+        setBookmarks([])
+        containerRef.current.innerHTML = ''
 
-        // Wipe previous content immediately
-        containerRef.current.innerHTML = '';
-
+        // 2. Initialize
         const osmd = new OpenSheetMusicDisplay(containerRef.current, {
             autoResize: false,
             backend: "svg",
@@ -43,48 +49,75 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
         async function load() {
             try {
                 await osmd.load(xmlUrl)
+                if (isCancelled) return
 
-                // CRITICAL CHECK: If component unmounted while loading, STOP.
-                if (isCancelled) return;
-
+                // 3. Render
                 osmd.render()
 
+                // 4. Calculate Dimensions (Safely)
                 const sheet = osmd.GraphicSheet
                 const unitInPixels = (sheet as any).UnitInPixels || 10
-                const lastMeasure = sheet.MeasureList[sheet.MeasureList.length - 1][0]
 
-                // Calculate Width
+                // Find the absolute last measure to determine full width
+                const measureList = sheet.MeasureList
+                const lastMeasureColumn = measureList[measureList.length - 1]
+                const lastMeasure = lastMeasureColumn[0]
+
                 const width = (lastMeasure.PositionAndShape.AbsolutePosition.x +
                     lastMeasure.PositionAndShape.BorderRight) * unitInPixels
 
-                // Calculate Height (Let it grow naturally)
-                // We use scrollHeight to capture the full height of all staves
-                const height = containerRef.current?.scrollHeight || 600
+                const height = Math.max(600, containerRef.current?.scrollHeight || 0)
 
                 setDimensions({ width, height })
-                setIsLoaded(true)
+
+                // 5. Calculate Bookmarks (Safely Wrapped)
+                try {
+                    const newBookmarks: BookmarkData[] = []
+                    // Jump every 8 measures
+                    for (let i = 0; i < measureList.length; i += 8) {
+                        const column = measureList[i]
+                        if (column && column[0]) {
+                            const measure = column[0]
+                            const x = measure.PositionAndShape.AbsolutePosition.x * unitInPixels
+                            newBookmarks.push({
+                                measureNumber: measure.MeasureNumber,
+                                pixelX: x
+                            })
+                        }
+                    }
+                    setBookmarks(newBookmarks)
+                } catch (bmError) {
+                    console.warn("Bookmark calculation failed (Music will still work):", bmError)
+                }
 
             } catch (e) {
-                if (!isCancelled) console.error("OSMD Render Error:", e)
+                if (!isCancelled) console.error("OSMD Critical Render Error:", e)
+            } finally {
+                if (!isCancelled) setIsLoaded(true) // Always finish loading!
             }
         }
 
         load()
 
-        // Cleanup Function
         return () => {
-            isCancelled = true; // Tell the async load to stop
-            osmd.clear();
+            isCancelled = true
+            try { osmd.clear() } catch (e) { }
         }
     }, [xmlUrl])
 
-    // 2. Smart Scroll Handler
     const handleWheel = (e: React.WheelEvent) => {
         if (!scrollContainerRef.current) return;
-        // Magic Mouse horizontal scroll detection
         if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-        // Convert vertical to horizontal if not holding shift
         if (!e.shiftKey) scrollContainerRef.current.scrollLeft += e.deltaY;
+    }
+
+    const jumpTo = (x: number) => {
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTo({
+                left: x - 50,
+                behavior: 'smooth'
+            })
+        }
     }
 
     const getBtnClass = (toolName: string) =>
@@ -116,27 +149,26 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
                         <Trash2 className="w-4 h-4" /> Clear All
                     </button>
                 </div>
-                {!isLoaded && <div className="flex items-center gap-2 text-zinc-400 text-xs"><Loader2 className="w-3 h-3 animate-spin" /> Loading...</div>}
+
+                {!isLoaded && (
+                    <div className="flex items-center gap-2 text-indigo-400 text-xs animate-pulse">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Processing Score...
+                    </div>
+                )}
             </div>
 
             {/* Scroll Area */}
             <div
                 ref={scrollContainerRef}
                 onWheel={handleWheel}
-                // CHANGED: overflow-y-auto allows vertical scrolling for tall scores
                 className={`flex-1 overflow-x-auto overflow-y-auto relative bg-white ${activeTool !== 'scroll' ? 'touch-none' : ''}`}
             >
                 <div style={{
                     width: isLoaded ? dimensions.width + 200 : '100%',
-                    // CHANGED: Use the calculated height so scrollbars appear correctly
                     height: isLoaded ? dimensions.height : '100%',
                     position: 'relative'
                 }}>
-
-                    {/* Music Layer */}
                     <div ref={containerRef} className="absolute inset-0" />
-
-                    {/* Annotation Layer */}
                     {isLoaded && (
                         <AnnotationRail
                             totalWidth={dimensions.width + 200}
@@ -148,6 +180,24 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
                     )}
                 </div>
             </div>
+
+            {/* Bookmark Ribbon */}
+            {isLoaded && bookmarks.length > 0 && (
+                <div className="h-10 bg-zinc-900 border-t border-zinc-800 flex items-center gap-1 px-4 overflow-x-auto shrink-0 custom-scrollbar">
+                    <span className="text-zinc-500 text-xs font-semibold mr-2 uppercase tracking-wider sticky left-0 bg-zinc-900 z-10">
+                        Jump to:
+                    </span>
+                    {bookmarks.map((b) => (
+                        <button
+                            key={b.measureNumber}
+                            onClick={() => jumpTo(b.pixelX)}
+                            className="px-2 py-1 bg-zinc-800 hover:bg-indigo-600 text-zinc-400 hover:text-white text-xs rounded transition-colors whitespace-nowrap min-w-[3rem] border border-zinc-700 hover:border-indigo-500"
+                        >
+                            M. {b.measureNumber}
+                        </button>
+                    ))}
+                </div>
+            )}
         </div>
     )
 }
