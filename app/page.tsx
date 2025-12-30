@@ -96,6 +96,11 @@ function MusicStudioContent() {
   // Read "mode" from URL (default to student if missing)
   const mode = searchParams.get('mode') || 'student'
 
+  const [userChoices, setUserChoices] = useState<{
+    videoDeviceId: string;
+    audioDeviceId: string;
+  } | null>(null);
+
   useEffect(() => {
     (async () => {
       try {
@@ -159,15 +164,22 @@ function MusicStudioContent() {
       {/* Main Content */}
       <main className="flex-1 overflow-hidden h-[calc(100vh-65px)] md:h-screen">
         <LiveKitRoom
-          video={true}
-          audio={true}
+          video={userChoices && currentView !== 'green-room' ? { deviceId: userChoices.videoDeviceId } : false}
+          audio={userChoices && currentView !== 'green-room' ? { deviceId: userChoices.audioDeviceId } : false}
           token={token}
           serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
-          connect={true}
+          connect={currentView !== 'green-room'}
           data-lk-theme="default"
           style={{ height: '100%' }}
         >
-          {currentView === "green-room" && <GreenRoom onJoin={() => setCurrentView("lesson")} />}
+          {currentView === "green-room" && (
+            <GreenRoom
+              onJoin={(choices) => {
+                setUserChoices(choices);
+                setCurrentView("lesson");
+              }}
+            />
+          )}
           {currentView === "lesson" && <LessonInterface />}
           {currentView === "recital" && <RecitalStage />}
           <RoomAudioRenderer />
