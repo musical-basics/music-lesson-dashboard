@@ -1,8 +1,8 @@
 "use client"
 import { useEffect, useState } from 'react'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { OSMDChunk } from './osmd-chunk'
-import { HorizontalAnnotation } from './horizontal-annotation'
+import { OSMDChunk } from '../osmd-chunk'
+import { HorizontalAnnotation } from '../horizontal-annotation'
 
 const MEASURES_PER_CHUNK = 4;
 const CHUNK_WIDTH = 1000; // Pixels per chunk
@@ -68,8 +68,8 @@ export function HorizontalChunkedFollower({ xmlUrl }: { xmlUrl: string }) {
                         return (
                             <div
                                 key={index}
-                                className="relative h-full flex-shrink-0 border-r border-gray-100"
-                                style={{ width: CHUNK_WIDTH }}
+                                className="relative h-full flex-shrink-0"
+                                style={{ width: CHUNK_WIDTH, minHeight: '600px' }}
                             >
                                 {/* Layer 1: The Music Slice */}
                                 <OSMDChunk
