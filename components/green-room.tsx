@@ -82,14 +82,66 @@ export function GreenRoom({ onJoin }: GreenRoomProps) {
   }, [selectedVideoId]);
 
 
-  // --- VISUALS ---
-  // Keep your existing Audio Animation (It's a nice UI touch)
+  // --- REAL AUDIO VISUALIZER ---
   useEffect(() => {
-    const interval = setInterval(() => {
-      setAudioLevel(Math.random() * 0.5 + 0.2);
-    }, 100);
-    return () => clearInterval(interval);
-  }, []);
+    if (!selectedAudioId) return;
+
+    let audioContext: AudioContext;
+    let analyser: AnalyserNode;
+    let microphone: MediaStreamAudioSourceNode;
+    let javascriptNode: ScriptProcessorNode;
+    let stream: MediaStream;
+
+    const startVisualizer = async () => {
+      try {
+        // 1. Get the raw audio stream
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: selectedAudioId }
+        });
+
+        // 2. Setup Web Audio API
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        microphone = audioContext.createMediaStreamSource(stream);
+        javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+
+        // 3. Connect the dots: Mic -> Analyser -> Processor -> Destination
+        analyser.smoothingTimeConstant = 0.8;
+        analyser.fftSize = 1024;
+
+        microphone.connect(analyser);
+        analyser.connect(javascriptNode);
+        javascriptNode.connect(audioContext.destination);
+
+        // 4. Calculate Volume on every frame
+        javascriptNode.onaudioprocess = () => {
+          const array = new Uint8Array(analyser.frequencyBinCount);
+          analyser.getByteFrequencyData(array);
+
+          let values = 0;
+          const length = array.length;
+          for (let i = 0; i < length; i++) {
+            values += array[i];
+          }
+
+          const average = values / length;
+          // Normalize to 0-1 range (approximate)
+          setAudioLevel(average / 50);
+        };
+
+      } catch (err) {
+        console.error("Error starting visualizer:", err);
+      }
+    };
+
+    startVisualizer();
+
+    return () => {
+      // Cleanup: Stop the stream and close the context to prevent echo/feedback
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      if (audioContext) audioContext.close();
+    };
+  }, [selectedAudioId]); // Re-run whenever they switch mics
 
 
   const handleJoin = () => {
