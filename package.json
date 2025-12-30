@@ -47,6 +47,7 @@
     "cmdk": "1.0.4",
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.5.1",
+    "fabric": "^7.0.0",
     "input-otp": "1.4.1",
     "livekit-client": "^2.16.1",
     "livekit-server-sdk": "^2.15.0",
