@@ -85,14 +85,15 @@ function SidebarContent({
   )
 }
 
-
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-export default function MusicStudioPage() {
+function MusicStudioContent() {
   const [currentView, setCurrentView] = useState<View>("green-room")
   const [token, setToken] = useState("")
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const searchParams = useSearchParams()
+  // Read "mode" from URL (default to student if missing)
   const mode = searchParams.get('mode') || 'student'
 
   useEffect(() => {
@@ -101,16 +102,18 @@ export default function MusicStudioPage() {
         console.log("Fetching token..."); // LOG 1
         console.log("Server URL:", process.env.NEXT_PUBLIC_LIVEKIT_URL); // Debug Server URL
 
-        // 1. Generate a UNIQUE identity based on the mode
+        // 1. Force a "Nuclear" Unique ID
+        // We add Date.now() to ensure it is impossible to clash
         // This prevents the "Kick off" bug.
-        // Teacher is always "teacher" (so you reconnect to the same session)
-        // Student gets a random ID so multiple students don't clash
-        const uniqueIdentity = mode === 'teacher'
-          ? 'teacher-main'
-          : `student-${Math.floor(Math.random() * 1000)}`;
+        const timestamp = Date.now();
+        const randomId = Math.floor(Math.random() * 10000);
 
-        console.log(`Connecting as: ${uniqueIdentity} (Mode: ${mode})`);
+        // Instead of 'teacher-main', we use 'teacher-1719283-992'
+        const uniqueIdentity = `${mode}-${timestamp}-${randomId}`;
 
+        console.log("Generated Identity:", uniqueIdentity);
+
+        // 2. Fetch the token with this specific identity
         const resp = await fetch(`/api/token?room=test&username=${uniqueIdentity}&role=${mode}`);
         const data = await resp.json();
         console.log("Token received:", data.token); // LOG 2
@@ -171,5 +174,13 @@ export default function MusicStudioPage() {
         </LiveKitRoom>
       </main>
     </div>
+  )
+}
+
+export default function MusicStudioPage() {
+  return (
+    <Suspense fallback={<div>Loading Studio...</div>}>
+      <MusicStudioContent />
+    </Suspense>
   )
 }
