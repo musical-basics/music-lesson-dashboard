@@ -28,6 +28,7 @@ import {
   Save,
 } from "lucide-react"
 import { VideoConference } from "@livekit/components-react"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
 type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | null
@@ -381,98 +382,204 @@ export function LessonInterface() {
     </div>
   )
 
+  const isMobile = useIsMobile()
+  const [showSheetMusic, setShowSheetMusic] = useState(false)
+
   return (
-    <div className="h-full flex flex-col bg-background">
-      {/* View mode switcher - unchanged */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-sidebar">
-        <span className="text-sm font-medium text-muted-foreground">View</span>
-        <div className="flex items-center gap-1">
-          <Button
-            variant={viewMode === "sheet-music" ? "default" : "ghost"}
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={() => setViewMode("sheet-music")}
-          >
-            <Music className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Sheet Music</span>
-          </Button>
-          <Button
-            variant={viewMode === "dual-widescreen" ? "default" : "ghost"}
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={() => setViewMode("dual-widescreen")}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Dual View</span>
-          </Button>
-          <Button
-            variant={viewMode === "picture-in-picture" ? "default" : "ghost"}
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={() => setViewMode("picture-in-picture")}
-          >
-            <PictureInPicture2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">PiP</span>
-          </Button>
+    <div className="h-full flex flex-col bg-background relative">
+      {/* View mode switcher - Only on Desktop */}
+      {!isMobile && (
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-sidebar">
+          <span className="text-sm font-medium text-muted-foreground">View</span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant={viewMode === "sheet-music" ? "default" : "ghost"}
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => setViewMode("sheet-music")}
+            >
+              <Music className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sheet Music</span>
+            </Button>
+            <Button
+              variant={viewMode === "dual-widescreen" ? "default" : "ghost"}
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => setViewMode("dual-widescreen")}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Dual View</span>
+            </Button>
+            <Button
+              variant={viewMode === "picture-in-picture" ? "default" : "ghost"}
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => setViewMode("picture-in-picture")}
+            >
+              <PictureInPicture2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">PiP</span>
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-hidden">
-        {viewMode === "sheet-music" && (
-          <div className="h-full flex flex-col lg:flex-row">
-            {/* Sheet Music Viewer - Full width on mobile, 70% on desktop */}
-            <div className="flex-1 lg:w-[70%] p-3 lg:p-4 flex flex-col min-h-0">
-              <div className="flex-1 rounded-xl border-2 border-border bg-card overflow-hidden flex flex-col">
-                {/* Sheet Music Header */}
-                <div className="px-3 lg:px-4 py-2 lg:py-3 border-b border-border bg-secondary/50 flex items-center justify-between">
-                  <div className="flex items-center gap-2 lg:gap-3">
-                    <Music className="w-4 h-4 lg:w-5 lg:h-5 text-primary" />
-                    <span className="font-medium text-foreground text-sm lg:text-base">Sheet Music</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <AnnotationToolbar />
-                    <div className="hidden sm:flex items-center gap-1 lg:gap-2 ml-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-foreground text-xs lg:text-sm px-2"
-                      >
-                        -
-                      </Button>
-                      <span className="text-xs lg:text-sm text-muted-foreground">100%</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-foreground text-xs lg:text-sm px-2"
-                      >
-                        +
-                      </Button>
+      <div className="flex-1 overflow-hidden relative">
+        {/* DESKTOP LAYOUT */}
+        {!isMobile && (
+          <>
+            {viewMode === "sheet-music" && (
+              <div className="h-full flex flex-col lg:flex-row">
+                <div className="flex-1 lg:w-[70%] p-3 lg:p-4 flex flex-col min-h-0">
+                  <div className="flex-1 rounded-xl border-2 border-border bg-card overflow-hidden flex flex-col">
+                    <div className="px-3 lg:px-4 py-2 lg:py-3 border-b border-border bg-secondary/50 flex items-center justify-between">
+                      <div className="flex items-center gap-2 lg:gap-3">
+                        <Music className="w-4 h-4 lg:w-5 lg:h-5 text-primary" />
+                        <span className="font-medium text-foreground text-sm lg:text-base">Sheet Music</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <AnnotationToolbar />
+                        <div className="hidden sm:flex items-center gap-1 lg:gap-2 ml-2">
+                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground text-xs lg:text-sm px-2">-</Button>
+                          <span className="text-xs lg:text-sm text-muted-foreground">100%</span>
+                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground text-xs lg:text-sm px-2">+</Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      ref={containerRef}
+                      className="flex-1 relative bg-muted/30"
+                      style={{ cursor: activeTool ? "crosshair" : "default" }}
+                    >
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="text-center space-y-3 lg:space-y-4 p-4 lg:p-8">
+                          <div className="w-20 h-20 lg:w-32 lg:h-32 mx-auto rounded-2xl bg-secondary/50 border-2 border-dashed border-border flex items-center justify-center">
+                            <Music className="w-10 h-10 lg:w-16 lg:h-16 text-muted-foreground" />
+                          </div>
+                          <div className="space-y-1 lg:space-y-2">
+                            <p className="text-base lg:text-lg font-medium text-foreground">XML-OSMD Sheet Music Canvas</p>
+                            <p className="text-xs lg:text-sm text-muted-foreground max-w-md">
+                              Sheet music will render here using OpenSheetMusicDisplay.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <canvas
+                        ref={canvasRef}
+                        className="absolute inset-0 w-full h-full"
+                        onMouseDown={handleCanvasMouseDown}
+                        onMouseMove={handleCanvasMouseMove}
+                        onMouseUp={handleCanvasMouseUp}
+                        onMouseLeave={handleCanvasMouseUp}
+                        onTouchStart={handleCanvasMouseDown}
+                        onTouchMove={handleCanvasMouseMove}
+                        onTouchEnd={handleCanvasMouseUp}
+                      />
+
+                      {textAnnotations.map((annotation) => (
+                        <div
+                          key={annotation.id}
+                          className="absolute text-sm font-medium pointer-events-none"
+                          style={{
+                            left: annotation.x,
+                            top: annotation.y,
+                            color: annotation.color,
+                            textShadow: "0 1px 2px rgba(0,0,0,0.5)",
+                          }}
+                        >
+                          {annotation.text}
+                        </div>
+                      ))}
+
+                      {isAddingText && pendingTextPosition && (
+                        <div className="absolute z-50" style={{ left: pendingTextPosition.x, top: pendingTextPosition.y }}>
+                          <input
+                            type="text"
+                            autoFocus
+                            className="px-2 py-1 text-sm bg-card border border-border rounded shadow-lg min-w-[120px]"
+                            placeholder="Enter text..."
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleAddText((e.target as HTMLInputElement).value)
+                              else if (e.key === "Escape") {
+                                setIsAddingText(false)
+                                setPendingTextPosition(null)
+                              }
+                            }}
+                            onBlur={(e) => handleAddText(e.target.value)}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
+                <div className="hidden lg:flex lg:w-[30%] p-3 lg:p-4 lg:pl-0 flex-col gap-3 lg:gap-4">
+                  <div className="h-full w-full">
+                    <VideoConference />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {viewMode === "dual-widescreen" && (
+              <div className="h-full p-3 lg:p-4 flex flex-col gap-3 lg:gap-4">
+                <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 max-w-5xl mx-auto w-full">
+                  <div className="h-full w-full">
+                    <VideoConference />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {viewMode === "picture-in-picture" && (
+              <div className="h-full p-3 lg:p-4 relative">
+                <div className="h-full flex items-center justify-center">
+                  <div className="w-full h-full max-w-6xl">
+                    <VideoConference />
+                  </div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="absolute top-4 right-4 gap-1.5 text-xs"
+                  onClick={() => setPipPosition(pipPosition === "right" ? "left" : "right")}
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Move PiP</span>
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* MOBILE LAYOUT */}
+        {isMobile && (
+          <div className="relative h-full w-full flex flex-col">
+            {/* LAYER A: The Video (Always rendered) */}
+            <div className={`flex-grow h-full w-full ${showSheetMusic ? 'hidden' : 'block'}`}>
+              <VideoConference />
+            </div>
+
+            {/* LAYER B: The Sheet Music (Only when toggled) */}
+            {showSheetMusic && (
+              <div className="flex-grow bg-background z-10 flex flex-col h-full">
+                <div className="px-3 py-2 border-b border-border bg-secondary/50 flex items-center justify-between">
+                  <span className="font-medium text-sm">Sheet Music</span>
+                  <AnnotationToolbar />
+                </div>
                 <div
                   ref={containerRef}
                   className="flex-1 relative bg-muted/30"
                   style={{ cursor: activeTool ? "crosshair" : "default" }}
                 >
-                  {/* Background placeholder */}
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="text-center space-y-3 lg:space-y-4 p-4 lg:p-8">
-                      <div className="w-20 h-20 lg:w-32 lg:h-32 mx-auto rounded-2xl bg-secondary/50 border-2 border-dashed border-border flex items-center justify-center">
-                        <Music className="w-10 h-10 lg:w-16 lg:h-16 text-muted-foreground" />
-                      </div>
-                      <div className="space-y-1 lg:space-y-2">
-                        <p className="text-base lg:text-lg font-medium text-foreground">XML-OSMD Sheet Music Canvas</p>
-                        <p className="text-xs lg:text-sm text-muted-foreground max-w-md">
-                          Sheet music will render here using OpenSheetMusicDisplay.
-                        </p>
-                      </div>
+                    <div className="text-center space-y-2 p-4">
+                      <Music className="w-10 h-10 text-muted-foreground mx-auto" />
+                      <p className="text-sm text-muted-foreground">Sheet Music Canvas</p>
                     </div>
                   </div>
-
-                  {/* Drawing canvas */}
                   <canvas
                     ref={canvasRef}
                     className="absolute inset-0 w-full h-full"
@@ -484,8 +591,6 @@ export function LessonInterface() {
                     onTouchMove={handleCanvasMouseMove}
                     onTouchEnd={handleCanvasMouseUp}
                   />
-
-                  {/* Text annotations */}
                   {textAnnotations.map((annotation) => (
                     <div
                       key={annotation.id}
@@ -500,77 +605,35 @@ export function LessonInterface() {
                       {annotation.text}
                     </div>
                   ))}
-
-                  {/* Text input dialog */}
-                  {isAddingText && pendingTextPosition && (
-                    <div className="absolute z-50" style={{ left: pendingTextPosition.x, top: pendingTextPosition.y }}>
-                      <input
-                        type="text"
-                        autoFocus
-                        className="px-2 py-1 text-sm bg-card border border-border rounded shadow-lg min-w-[120px]"
-                        placeholder="Enter text..."
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            handleAddText((e.target as HTMLInputElement).value)
-                          } else if (e.key === "Escape") {
-                            setIsAddingText(false)
-                            setPendingTextPosition(null)
-                          }
-                        }}
-                        onBlur={(e) => handleAddText(e.target.value)}
-                      />
-                    </div>
-                  )}
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Video Feeds - 30% sidebar on desktop, hidden on mobile */}
-            <div className="hidden lg:flex lg:w-[30%] p-3 lg:p-4 lg:pl-0 flex-col gap-3 lg:gap-4">
-              <div className="h-full w-full">
-                <VideoConference />
-              </div>
+            {/* LAYER C: The Toggle Button (Floating) */}
+            <div className="absolute bottom-20 right-4 z-50">
+              <Button
+                onClick={() => setShowSheetMusic(!showSheetMusic)}
+                size="lg"
+                className="rounded-full shadow-xl font-bold gap-2"
+              >
+                {showSheetMusic ? (
+                  <>
+                    <Video className="w-5 h-5" /> Show Video
+                  </>
+                ) : (
+                  <>
+                    <Music className="w-5 h-5" /> Show Sheets
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         )}
 
-        {viewMode === "dual-widescreen" && (
-          <div className="h-full p-3 lg:p-4 flex flex-col gap-3 lg:gap-4">
-            <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 max-w-5xl mx-auto w-full">
-              <div className="h-full w-full">
-                <VideoConference />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {viewMode === "picture-in-picture" && (
-          <div className="h-full p-3 lg:p-4 relative">
-            {/* Main video - VideoConference handling layout */}
-            <div className="h-full flex items-center justify-center">
-              <div className="w-full h-full max-w-6xl">
-                <VideoConference />
-              </div>
-            </div>
-
-            {/* Remove custom PiP UI as VideoConference handles it or it's not compatible with default VideoConference behavior */}
-
-            {/* Swap button */}
-            <Button
-              variant="secondary"
-              size="sm"
-              className="absolute top-4 right-4 gap-1.5 text-xs"
-              onClick={() => setPipPosition(pipPosition === "right" ? "left" : "right")}
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Move PiP</span>
-            </Button>
-          </div>
-        )}
       </div>
 
-      {/* Control Bar - unchanged */}
-      <div className="border-t border-border bg-sidebar p-3 lg:p-4">
+      {/* Control Bar - Always Visible */}
+      <div className="border-t border-border bg-sidebar p-3 lg:p-4 z-50">
         <div className="flex items-center justify-between gap-2 max-w-4xl mx-auto">
           {/* Left Controls */}
           <div className="flex items-center gap-2 lg:gap-3">
@@ -594,10 +657,6 @@ export function LessonInterface() {
               ) : (
                 <Video className="w-4 h-4 lg:w-5 lg:h-5" />
               )}
-            </Button>
-
-            <Button variant="secondary" size="icon" className="w-10 h-10 lg:w-12 lg:h-12 rounded-full hidden sm:flex">
-              <MonitorUp className="w-4 h-4 lg:w-5 lg:h-5" />
             </Button>
           </div>
 
