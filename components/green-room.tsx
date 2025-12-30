@@ -82,52 +82,64 @@ export function GreenRoom({ onJoin }: GreenRoomProps) {
   }, [selectedVideoId]);
 
 
-  // --- REAL AUDIO VISUALIZER ---
+  // --- REAL AUDIO VISUALIZER (RMS / AMPLITUDE) ---
   useEffect(() => {
     if (!selectedAudioId) return;
 
     let audioContext: AudioContext;
     let analyser: AnalyserNode;
     let microphone: MediaStreamAudioSourceNode;
-    let javascriptNode: ScriptProcessorNode;
     let stream: MediaStream;
+    let animationFrameId: number;
 
     const startVisualizer = async () => {
       try {
         // 1. Get the raw audio stream
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: selectedAudioId }
+          audio: {
+            deviceId: selectedAudioId,
+            echoCancellation: false, // Turn off processing to see raw volume
+            autoGainControl: false
+          }
         });
 
         // 2. Setup Web Audio API
         audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         analyser = audioContext.createAnalyser();
         microphone = audioContext.createMediaStreamSource(stream);
-        javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
 
-        // 3. Connect the dots: Mic -> Analyser -> Processor -> Destination
-        analyser.smoothingTimeConstant = 0.8;
-        analyser.fftSize = 1024;
+        // 3. Configure Analyser
+        analyser.fftSize = 256; // Smaller size = faster reaction
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
 
         microphone.connect(analyser);
-        analyser.connect(javascriptNode);
-        javascriptNode.connect(audioContext.destination);
 
-        // 4. Calculate Volume on every frame
-        javascriptNode.onaudioprocess = () => {
-          const array = new Uint8Array(analyser.frequencyBinCount);
-          analyser.getByteFrequencyData(array);
+        // 4. Animation Loop
+        const draw = () => {
+          if (!analyser) return;
 
-          let values = 0;
-          const length = array.length;
-          for (let i = 0; i < length; i++) {
-            values += array[i];
+          // Get Time Domain Data (The Waveform) instead of Frequency
+          analyser.getByteTimeDomainData(dataArray);
+
+          // Calculate RMS (Volume)
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            // Convert 0-255 range to -1 to +1 range
+            const x = (dataArray[i] - 128) / 128;
+            sum += x * x;
           }
+          const rms = Math.sqrt(sum / bufferLength);
 
-          const average = values / length;
-          // Normalize to 0-1 range (approximate)
-          setAudioLevel(average / 50);
+          // Boost the signal so it looks good on screen (x5 multiplier)
+          // Clamp it between 0 and 1
+          const displayLevel = Math.min(1, rms * 5);
+
+          setAudioLevel(displayLevel);
+          animationFrameId = requestAnimationFrame(draw);
         };
+
+        draw();
 
       } catch (err) {
         console.error("Error starting visualizer:", err);
@@ -137,11 +149,12 @@ export function GreenRoom({ onJoin }: GreenRoomProps) {
     startVisualizer();
 
     return () => {
-      // Cleanup: Stop the stream and close the context to prevent echo/feedback
+      // Cleanup
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (stream) stream.getTracks().forEach(track => track.stop());
       if (audioContext) audioContext.close();
     };
-  }, [selectedAudioId]); // Re-run whenever they switch mics
+  }, [selectedAudioId]);
 
 
   const handleJoin = () => {
