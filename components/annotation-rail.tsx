@@ -1,24 +1,22 @@
 "use client"
-import { useEffect, useRef } from 'react'
-import { Canvas, PencilBrush } from 'fabric' // Make sure you ran: npm install fabric
+import { useEffect, useRef, useState } from 'react'
+import { Canvas, PencilBrush } from 'fabric'
 
 interface AnnotationRailProps {
     totalWidth: number
     height: number
+    activeTool: 'scroll' | 'pen' | 'eraser' // New Prop
+    clearTrigger: number // New Prop (Increment to trigger clear)
 }
 
-// 2000px is a safe limit for mobile browsers (iOS Canvas limit)
 const CHUNK_SIZE = 2000;
 
-export function AnnotationRail({ totalWidth, height }: AnnotationRailProps) {
-    // 1. Calculate how many "Tiles" we need to cover the song
+export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger }: AnnotationRailProps) {
     const chunkCount = Math.ceil(totalWidth / CHUNK_SIZE);
 
     return (
         <div
             className="absolute top-0 left-0 z-10 flex"
-            // IMPORTANT: We do NOT set pointer-events here. 
-            // We let the Parent (HorizontalMusicContainer) control touch/click access.
             style={{ width: totalWidth, height: height }}
         >
             {Array.from({ length: chunkCount }).map((_, i) => (
@@ -27,76 +25,123 @@ export function AnnotationRail({ totalWidth, height }: AnnotationRailProps) {
                     index={i}
                     width={i === chunkCount - 1 ? totalWidth % CHUNK_SIZE : CHUNK_SIZE}
                     height={height}
+                    activeTool={activeTool}
+                    clearTrigger={clearTrigger}
                 />
             ))}
         </div>
     )
 }
 
-function AnnotationChunk({ width, height, index }: { width: number, height: number, index: number }) {
+function AnnotationChunk({ width, height, index, activeTool, clearTrigger }: {
+    width: number, height: number, index: number,
+    activeTool: 'scroll' | 'pen' | 'eraser',
+    clearTrigger: number
+}) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
-
-    // Use a Ref to track if component is unmounted (prevents the crash)
+    const fabricRef = useRef<Canvas | null>(null)
     const isMounted = useRef(true)
 
+    // 1. Initialize Canvas
     useEffect(() => {
         isMounted.current = true;
         if (!canvasRef.current) return
 
-        // 1. Init Fabric Canvas
         const canvas = new Canvas(canvasRef.current, {
             width,
             height,
-            isDrawingMode: true,
             backgroundColor: 'transparent',
+            selection: false, // Disable group selection box
         })
 
-        // 2. Setup Red Pen
+        // Setup Pen
         const brush = new PencilBrush(canvas)
         brush.color = "#ff0000"
         brush.width = 4
         canvas.freeDrawingBrush = brush
 
-        // 3. Robust Persistence Loading
+        // Load Data
         const chunkKey = `annotation-tile-${index}`
         const saved = localStorage.getItem(chunkKey)
-
         if (saved) {
             try {
-                const json = JSON.parse(saved);
-                // loadFromJSON is async! We must wait for it.
-                canvas.loadFromJSON(json, () => {
-                    // Only render if the component is still alive
-                    if (!isMounted.current) return;
-
-                    // THE FIX: Force a re-render immediately after data loads
-                    canvas.requestRenderAll();
+                canvas.loadFromJSON(JSON.parse(saved), () => {
+                    if (isMounted.current) canvas.requestRenderAll()
                 })
-            } catch (e) {
-                console.error("Failed to load annotation", e)
-            }
+            } catch (e) { console.error(e) }
         }
 
-        // 4. Save on Draw
-        canvas.on('path:created', () => {
-            if (!isMounted.current) return;
-            const json = JSON.stringify(canvas.toJSON())
-            localStorage.setItem(chunkKey, json)
-        })
+        // Save on Add
+        canvas.on('path:created', () => saveCanvas(canvas, chunkKey))
+
+        fabricRef.current = canvas
 
         return () => {
-            isMounted.current = false;
-            // Wrap dispose in a try-catch to silence the 'clearRect' error during hot-reloads
-            try {
-                canvas.dispose();
-            } catch (e) {
-                // suppress disposal errors
-            }
+            isMounted.current = false
+            try { canvas.dispose() } catch (e) { }
         }
-    }, [width, height, index])
+    }, [width, height, index]) // Re-init if size changes
+
+    // 2. Handle Tool Changes (Pen vs Eraser vs Scroll)
+    useEffect(() => {
+        if (!fabricRef.current) return
+        const canvas = fabricRef.current
+
+        if (activeTool === 'pen') {
+            canvas.isDrawingMode = true
+            canvas.defaultCursor = 'crosshair'
+            canvas.hoverCursor = 'crosshair'
+            // Disable click-to-delete logic
+            canvas.off('mouse:down')
+        }
+        else if (activeTool === 'eraser') {
+            canvas.isDrawingMode = false // Stop drawing
+            canvas.defaultCursor = 'cell' // Eraser icon cursor
+            canvas.hoverCursor = 'cell'
+
+            // Enable "Click/Tap to Delete" logic
+            canvas.on('mouse:down', (opt) => {
+                if (opt.target) {
+                    canvas.remove(opt.target)
+                    canvas.requestRenderAll()
+                    saveCanvas(canvas, `annotation-tile-${index}`)
+                }
+            })
+        }
+        else {
+            // Scroll Mode
+            canvas.isDrawingMode = false
+            canvas.defaultCursor = 'default'
+            canvas.off('mouse:down')
+        }
+
+    }, [activeTool, index])
+
+    // 3. Handle Clear All Signal
+    useEffect(() => {
+        // If clearTrigger is 0, it's the initial render, don't clear
+        if (clearTrigger > 0 && fabricRef.current) {
+            fabricRef.current.clear()
+            fabricRef.current.backgroundColor = 'transparent' // Reset bg after clear
+            fabricRef.current.requestRenderAll()
+            localStorage.removeItem(`annotation-tile-${index}`)
+        }
+    }, [clearTrigger, index])
+
+    // Helper to save
+    const saveCanvas = (canvas: Canvas, key: string) => {
+        if (!isMounted.current) return
+        const json = JSON.stringify(canvas.toJSON())
+        localStorage.setItem(key, json)
+    }
+
+    // Pointer Events Logic: 
+    // If 'scroll' mode, we disable pointer events so clicks pass through to the music.
+    // If 'pen' or 'eraser', we enable them so we can interact with the canvas.
+    const pointerEvents = activeTool === 'scroll' ? 'none' : 'auto'
 
     return (
-        <div style={{ width, height, borderRight: '1px dashed rgba(0,0,0,0.1)' }}>
+        <div style={{ width, height, pointerEvents: pointerEvents as any }}>
             <canvas ref={canvasRef} />
         </div>
     )
