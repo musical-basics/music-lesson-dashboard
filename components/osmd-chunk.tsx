@@ -24,18 +24,25 @@ export function OSMDChunk({ xmlUrl, startMeasure, endMeasure, width, isFirstChun
             backend: "svg",
             drawingParameters: "compacttight", // Fit more music in less space
 
-            // Hiding UI elements for seamless connections
-            drawPartNames: isFirstChunk,
-            drawTitle: false, // We'll put the title in your app header, not the canvas
+            // Standard hiding
+            drawTitle: false,
             drawSubtitle: false,
             drawComposer: false,
-            drawMetronomeMarks: isFirstChunk, // Only show tempo on start
-
-            // The "Infinite Scroll" visual hack
-            // If it's NOT the first chunk, we try to hide the clef/key to look continuous
-            // Note: OSMD v1.0+ handles this via render logic, but 'compacttight' helps.
+            drawMetronomeMarks: isFirstChunk,
+            drawPartNames: isFirstChunk, // Only show "Piano" on the first one
         })
         osmdRef.current = osmd
+
+        // The Magic: Disable Clefs & Signatures for continuation chunks
+        osmd.setOptions({
+            renderSingleHorizontalStaffline: true, // Forces horizontal layout
+        })
+
+        if (!isFirstChunk) {
+            osmd.EngravingRules.RenderClefsAtBeginningOfStaffline = false;
+            osmd.EngravingRules.RenderKeySignatures = false;
+            osmd.EngravingRules.RenderTimeSignatures = false;
+        }
 
         // 2. Load the file
         osmd.load(xmlUrl).then(() => {
