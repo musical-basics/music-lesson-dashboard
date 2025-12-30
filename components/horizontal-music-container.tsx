@@ -19,14 +19,23 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
     const [activeTool, setActiveTool] = useState<'scroll' | 'pen' | 'eraser'>('scroll')
     const [clearTrigger, setClearTrigger] = useState(0)
 
-    // 1. OSMD Render Logic
+    // 1. OSMD Render Logic (Now with Race-Condition Protection)
     useEffect(() => {
         if (!containerRef.current) return
-        containerRef.current.innerHTML = '' // Clear previous renders (Fixes "Duplicate" bug)
+
+        // Create a flag to track if this specific effect instance is still valid
+        let isCancelled = false;
+
+        // Wipe previous content immediately
+        containerRef.current.innerHTML = '';
 
         const osmd = new OpenSheetMusicDisplay(containerRef.current, {
-            autoResize: false, backend: "svg", drawingParameters: "compacttight",
-            drawTitle: false, drawSubtitle: false, drawComposer: false,
+            autoResize: false,
+            backend: "svg",
+            drawingParameters: "compacttight",
+            drawTitle: false,
+            drawSubtitle: false,
+            drawComposer: false,
             renderSingleHorizontalStaffline: true
         })
         osmdRef.current = osmd
@@ -34,43 +43,50 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
         async function load() {
             try {
                 await osmd.load(xmlUrl)
+
+                // CRITICAL CHECK: If component unmounted while loading, STOP.
+                if (isCancelled) return;
+
                 osmd.render()
+
                 const sheet = osmd.GraphicSheet
                 const unitInPixels = (sheet as any).UnitInPixels || 10
                 const lastMeasure = sheet.MeasureList[sheet.MeasureList.length - 1][0]
+
+                // Calculate Width
                 const width = (lastMeasure.PositionAndShape.AbsolutePosition.x +
                     lastMeasure.PositionAndShape.BorderRight) * unitInPixels
 
-                // Ensure strictly positive dimensions
-                const height = Math.max(600, containerRef.current?.scrollHeight || 0)
+                // Calculate Height (Let it grow naturally)
+                // We use scrollHeight to capture the full height of all staves
+                const height = containerRef.current?.scrollHeight || 600
 
                 setDimensions({ width, height })
                 setIsLoaded(true)
-            } catch (e) { console.error("OSMD Render Error:", e) }
+
+            } catch (e) {
+                if (!isCancelled) console.error("OSMD Render Error:", e)
+            }
         }
+
         load()
-        return () => osmd.clear()
+
+        // Cleanup Function
+        return () => {
+            isCancelled = true; // Tell the async load to stop
+            osmd.clear();
+        }
     }, [xmlUrl])
 
-    // 2. SMART SCROLL HANDLER (Magic Mouse Compatible)
+    // 2. Smart Scroll Handler
     const handleWheel = (e: React.WheelEvent) => {
         if (!scrollContainerRef.current) return;
-
-        // A. Magic Mouse / Trackpad detection
-        // If the event has 'deltaX', the user is already scrolling horizontally. 
-        // Let the browser handle it natively (smooth inertia).
-        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-            return;
-        }
-
-        // B. Standard Mouse (Vertical Wheel)
-        // If strictly vertical, we manually push the scrollLeft.
-        if (!e.shiftKey) {
-            scrollContainerRef.current.scrollLeft += e.deltaY;
-        }
+        // Magic Mouse horizontal scroll detection
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+        // Convert vertical to horizontal if not holding shift
+        if (!e.shiftKey) scrollContainerRef.current.scrollLeft += e.deltaY;
     }
 
-    // 3. Toolbar Styles
     const getBtnClass = (toolName: string) =>
         `flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTool === toolName
             ? 'bg-indigo-600 text-white'
@@ -106,15 +122,21 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
             {/* Scroll Area */}
             <div
                 ref={scrollContainerRef}
-                onWheel={handleWheel} // The new smart handler
-                className={`flex-1 overflow-x-auto overflow-y-hidden relative bg-white ${activeTool !== 'scroll' ? 'touch-none' : ''}`}
+                onWheel={handleWheel}
+                // CHANGED: overflow-y-auto allows vertical scrolling for tall scores
+                className={`flex-1 overflow-x-auto overflow-y-auto relative bg-white ${activeTool !== 'scroll' ? 'touch-none' : ''}`}
             >
                 <div style={{
                     width: isLoaded ? dimensions.width + 200 : '100%',
-                    height: '100%',
+                    // CHANGED: Use the calculated height so scrollbars appear correctly
+                    height: isLoaded ? dimensions.height : '100%',
                     position: 'relative'
                 }}>
-                    <div ref={containerRef} className="absolute inset-0 h-full min-h-[600px]" />
+
+                    {/* Music Layer */}
+                    <div ref={containerRef} className="absolute inset-0" />
+
+                    {/* Annotation Layer */}
                     {isLoaded && (
                         <AnnotationRail
                             totalWidth={dimensions.width + 200}
