@@ -85,10 +85,15 @@ function SidebarContent({
   )
 }
 
+
+import { useSearchParams } from 'next/navigation'
+
 export default function MusicStudioPage() {
   const [currentView, setCurrentView] = useState<View>("green-room")
   const [token, setToken] = useState("")
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const searchParams = useSearchParams()
+  const mode = searchParams.get('mode') || 'student'
 
   useEffect(() => {
     (async () => {
@@ -96,7 +101,17 @@ export default function MusicStudioPage() {
         console.log("Fetching token..."); // LOG 1
         console.log("Server URL:", process.env.NEXT_PUBLIC_LIVEKIT_URL); // Debug Server URL
 
-        const resp = await fetch(`/api/token?room=test&username=teacher`);
+        // 1. Generate a UNIQUE identity based on the mode
+        // This prevents the "Kick off" bug.
+        // Teacher is always "teacher" (so you reconnect to the same session)
+        // Student gets a random ID so multiple students don't clash
+        const uniqueIdentity = mode === 'teacher'
+          ? 'teacher-main'
+          : `student-${Math.floor(Math.random() * 1000)}`;
+
+        console.log(`Connecting as: ${uniqueIdentity} (Mode: ${mode})`);
+
+        const resp = await fetch(`/api/token?room=test&username=${uniqueIdentity}&role=${mode}`);
         const data = await resp.json();
         console.log("Token received:", data.token); // LOG 2
         setToken(data.token);
@@ -104,7 +119,7 @@ export default function MusicStudioPage() {
         console.error("Token fetch failed:", e); // LOG 3
       }
     })();
-  }, []);
+  }, [mode]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
