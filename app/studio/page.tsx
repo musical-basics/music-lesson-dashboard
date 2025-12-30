@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { MusicLibrary, Song } from '@/components/music-library'
 import { HorizontalMusicContainer } from '@/components/horizontal-music-container'
+import { FloatingVideo } from '@/components/floating-video'
 
 export default function StudioPage() {
     const [currentSong, setCurrentSong] = useState<Song>({
@@ -11,7 +12,10 @@ export default function StudioPage() {
     })
 
     return (
-        <div className="flex bg-zinc-950 h-[calc(100vh-64px)] overflow-hidden">
+        <div className="flex bg-zinc-950 h-[calc(100vh-64px)] overflow-hidden relative">
+            {/* 0. Floating Video Widget */}
+            <FloatingVideo />
+
             {/* 1. Sidebar */}
             <MusicLibrary
                 currentSongId={currentSong.id}
