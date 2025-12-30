@@ -6,9 +6,10 @@ import { Pencil, Hand, Loader2, Eraser, Trash2 } from 'lucide-react' // Added Er
 
 interface HorizontalMusicContainerProps {
     xmlUrl: string
+    songId: string
 }
 
-export function HorizontalMusicContainer({ xmlUrl }: HorizontalMusicContainerProps) {
+export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicContainerProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
 
@@ -113,6 +114,7 @@ export function HorizontalMusicContainer({ xmlUrl }: HorizontalMusicContainerPro
                             height={dimensions.height}
                             activeTool={activeTool}     // Pass the tool
                             clearTrigger={clearTrigger} // Pass the clear signal
+                            songId={songId}             // Pass the song ID
                         />
                     )}
                 </div>
