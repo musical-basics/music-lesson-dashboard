@@ -2,11 +2,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { AnnotationRail } from './annotation-rail'
-import { Pencil, Hand, Loader2, Eraser, Trash2 } from 'lucide-react'
+import { Pencil, Hand, Loader2, Eraser, Trash2, Cloud } from 'lucide-react'
+import { useLessonState } from '@/hooks/use-lesson-state'
 
 interface HorizontalMusicContainerProps {
     xmlUrl: string
     songId: string
+    studentId: string // <--- New Context
 }
 
 type BookmarkData = {
@@ -14,7 +16,7 @@ type BookmarkData = {
     pixelX: number;
 }
 
-export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicContainerProps) {
+export function HorizontalMusicContainer({ xmlUrl, songId, studentId }: HorizontalMusicContainerProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
@@ -25,23 +27,20 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
     const [clearTrigger, setClearTrigger] = useState(0)
     const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
 
+    // HOOK: Managed Lesson State
+    const { annotationState, saveAnnotationState, isSaving } = useLessonState(studentId, songId)
+
     useEffect(() => {
         if (!containerRef.current) return
         let isCancelled = false
 
-        // 1. Reset
         setIsLoaded(false)
         setBookmarks([])
         containerRef.current.innerHTML = ''
 
-        // 2. Initialize
         const osmd = new OpenSheetMusicDisplay(containerRef.current, {
-            autoResize: false,
-            backend: "svg",
-            drawingParameters: "compacttight",
-            drawTitle: false,
-            drawSubtitle: false,
-            drawComposer: false,
+            autoResize: false, backend: "svg", drawingParameters: "compacttight",
+            drawTitle: false, drawSubtitle: false, drawComposer: false,
             renderSingleHorizontalStaffline: true
         })
         osmdRef.current = osmd
@@ -50,59 +49,36 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
             try {
                 await osmd.load(xmlUrl)
                 if (isCancelled) return
-
-                // 3. Render
                 osmd.render()
 
-                // 4. Calculate Dimensions (Safely)
                 const sheet = osmd.GraphicSheet
                 const unitInPixels = (sheet as any).UnitInPixels || 10
-
-                // Find the absolute last measure to determine full width
-                const measureList = sheet.MeasureList
-                const lastMeasureColumn = measureList[measureList.length - 1]
-                const lastMeasure = lastMeasureColumn[0]
-
+                const lastMeasure = sheet.MeasureList[sheet.MeasureList.length - 1][0]
                 const width = (lastMeasure.PositionAndShape.AbsolutePosition.x +
                     lastMeasure.PositionAndShape.BorderRight) * unitInPixels
-
                 const height = Math.max(600, containerRef.current?.scrollHeight || 0)
 
                 setDimensions({ width, height })
 
-                // 5. Calculate Bookmarks (Safely Wrapped)
                 try {
                     const newBookmarks: BookmarkData[] = []
-                    // Jump every 8 measures
-                    for (let i = 0; i < measureList.length; i += 8) {
-                        const column = measureList[i]
+                    for (let i = 0; i < sheet.MeasureList.length; i += 8) {
+                        const column = sheet.MeasureList[i]
                         if (column && column[0]) {
-                            const measure = column[0]
-                            const x = measure.PositionAndShape.AbsolutePosition.x * unitInPixels
                             newBookmarks.push({
-                                measureNumber: measure.MeasureNumber,
-                                pixelX: x
+                                measureNumber: column[0].MeasureNumber,
+                                pixelX: column[0].PositionAndShape.AbsolutePosition.x * unitInPixels
                             })
                         }
                     }
                     setBookmarks(newBookmarks)
-                } catch (bmError) {
-                    console.warn("Bookmark calculation failed (Music will still work):", bmError)
-                }
+                } catch (bmError) { console.warn("Bookmark failed", bmError) }
 
-            } catch (e) {
-                if (!isCancelled) console.error("OSMD Critical Render Error:", e)
-            } finally {
-                if (!isCancelled) setIsLoaded(true) // Always finish loading!
-            }
+            } catch (e) { if (!isCancelled) console.error("OSMD Error:", e) }
+            finally { if (!isCancelled) setIsLoaded(true) }
         }
-
         load()
-
-        return () => {
-            isCancelled = true
-            try { osmd.clear() } catch (e) { }
-        }
+        return () => { isCancelled = true; try { osmd.clear() } catch (e) { } }
     }, [xmlUrl])
 
     const handleWheel = (e: React.WheelEvent) => {
@@ -112,12 +88,7 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
     }
 
     const jumpTo = (x: number) => {
-        if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTo({
-                left: x - 50,
-                behavior: 'smooth'
-            })
-        }
+        scrollContainerRef.current?.scrollTo({ left: x - 50, behavior: 'smooth' })
     }
 
     const getBtnClass = (toolName: string) =>
@@ -150,24 +121,27 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
                     </button>
                 </div>
 
-                {!isLoaded && (
-                    <div className="flex items-center gap-2 text-indigo-400 text-xs animate-pulse">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Processing Score...
+                <div className="flex items-center gap-4">
+                    {/* Save Indicator */}
+                    <div className={`flex items-center gap-1.5 text-xs transition-opacity ${isSaving ? 'opacity-100' : 'opacity-0'}`}>
+                        <Cloud className="w-3 h-3 text-indigo-400" />
+                        <span className="text-indigo-400">Saving...</span>
                     </div>
-                )}
+
+                    {!isLoaded && (
+                        <div className="flex items-center gap-2 text-indigo-400 text-xs animate-pulse">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Processing Score...
+                        </div>
+                    )}
+                </div>
             </div>
 
-            {/* Scroll Area */}
             <div
                 ref={scrollContainerRef}
                 onWheel={handleWheel}
                 className={`flex-1 overflow-x-auto overflow-y-auto relative bg-white ${activeTool !== 'scroll' ? 'touch-none' : ''}`}
             >
-                <div style={{
-                    width: isLoaded ? dimensions.width + 200 : '100%',
-                    height: isLoaded ? dimensions.height : '100%',
-                    position: 'relative'
-                }}>
+                <div style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
                     <div ref={containerRef} className="absolute inset-0" />
                     {isLoaded && (
                         <AnnotationRail
@@ -176,23 +150,18 @@ export function HorizontalMusicContainer({ xmlUrl, songId }: HorizontalMusicCont
                             activeTool={activeTool}
                             clearTrigger={clearTrigger}
                             songId={songId}
+                            data={annotationState} // Pass Data
+                            onSave={saveAnnotationState} // Pass Save Function
                         />
                     )}
                 </div>
             </div>
 
-            {/* Bookmark Ribbon */}
             {isLoaded && bookmarks.length > 0 && (
                 <div className="h-10 bg-zinc-900 border-t border-zinc-800 flex items-center gap-1 px-4 overflow-x-auto shrink-0 custom-scrollbar">
-                    <span className="text-zinc-500 text-xs font-semibold mr-2 uppercase tracking-wider sticky left-0 bg-zinc-900 z-10">
-                        Jump to:
-                    </span>
+                    <span className="text-zinc-500 text-xs font-semibold mr-2 uppercase tracking-wider sticky left-0 bg-zinc-900 z-10">Jump to:</span>
                     {bookmarks.map((b) => (
-                        <button
-                            key={b.measureNumber}
-                            onClick={() => jumpTo(b.pixelX)}
-                            className="px-2 py-1 bg-zinc-800 hover:bg-indigo-600 text-zinc-400 hover:text-white text-xs rounded transition-colors whitespace-nowrap min-w-[3rem] border border-zinc-700 hover:border-indigo-500"
-                        >
+                        <button key={b.measureNumber} onClick={() => jumpTo(b.pixelX)} className="px-2 py-1 bg-zinc-800 hover:bg-indigo-600 text-zinc-400 hover:text-white text-xs rounded transition-colors whitespace-nowrap min-w-[3rem] border border-zinc-700 hover:border-indigo-500">
                             M. {b.measureNumber}
                         </button>
                     ))}

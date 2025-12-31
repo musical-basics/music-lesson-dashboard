@@ -1,19 +1,29 @@
 "use client"
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Canvas, PencilBrush } from 'fabric'
+import { AnnotationState } from '@/hooks/use-lesson-state'
 
 interface AnnotationRailProps {
     totalWidth: number
     height: number
     activeTool: 'scroll' | 'pen' | 'eraser'
     clearTrigger: number
-    songId: string // <--- NEW PROP: The unique ID of the current song
+    songId: string
+    data: AnnotationState
+    onSave: (newData: AnnotationState) => void
 }
 
 const CHUNK_SIZE = 2000;
 
-export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, songId }: AnnotationRailProps) {
+export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, songId, data, onSave }: AnnotationRailProps) {
     const chunkCount = Math.ceil(totalWidth / CHUNK_SIZE);
+
+    const handleChunkSave = (index: number, chunkData: any) => {
+        onSave({
+            ...data,
+            [index]: chunkData
+        })
+    }
 
     return (
         <div
@@ -22,29 +32,32 @@ export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, s
         >
             {Array.from({ length: chunkCount }).map((_, i) => (
                 <AnnotationChunk
-                    key={`${songId}-chunk-${i}`} // Force re-render when song changes
+                    key={`${songId}-chunk-${i}`}
                     index={i}
                     width={i === chunkCount - 1 ? totalWidth % CHUNK_SIZE : CHUNK_SIZE}
                     height={height}
                     activeTool={activeTool}
                     clearTrigger={clearTrigger}
-                    songId={songId} // Pass it down
+                    initialData={data[i]}
+                    onSave={(chunkData) => handleChunkSave(i, chunkData)}
                 />
             ))}
         </div>
     )
 }
 
-function AnnotationChunk({ width, height, index, activeTool, clearTrigger, songId }: {
+function AnnotationChunk({ width, height, index, activeTool, clearTrigger, initialData, onSave }: {
     width: number, height: number, index: number,
     activeTool: 'scroll' | 'pen' | 'eraser',
     clearTrigger: number,
-    songId: string
+    initialData: any,
+    onSave: (data: any) => void
 }) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const fabricRef = useRef<Canvas | null>(null)
     const isMounted = useRef(true)
 
+    // 1. Initialize Canvas
     useEffect(() => {
         isMounted.current = true;
         if (!canvasRef.current) return
@@ -61,32 +74,28 @@ function AnnotationChunk({ width, height, index, activeTool, clearTrigger, songI
         brush.width = 4
         canvas.freeDrawingBrush = brush
 
-        // --- KEY CHANGE: NAMESPACED STORAGE ---
-        const chunkKey = `annotation-${songId}-tile-${index}`
-        // -------------------------------------
-
-        const saved = localStorage.getItem(chunkKey)
-        if (saved) {
+        // Load Initial Data
+        if (initialData) {
             try {
-                canvas.loadFromJSON(JSON.parse(saved), () => {
+                canvas.loadFromJSON(initialData, () => {
                     if (isMounted.current) canvas.requestRenderAll()
                 })
             } catch (e) { console.error(e) }
         }
 
+        // Save Events
         canvas.on('path:created', () => {
-            if (!isMounted.current) return
-            localStorage.setItem(chunkKey, JSON.stringify(canvas.toJSON()))
+            if (isMounted.current) onSave(canvas.toJSON())
         })
 
         fabricRef.current = canvas
 
-        // Handle Deletion (Eraser)
+        // Eraser Logic
         canvas.on('mouse:down', (opt) => {
             if (activeTool === 'eraser' && opt.target) {
                 canvas.remove(opt.target)
                 canvas.requestRenderAll()
-                localStorage.setItem(chunkKey, JSON.stringify(canvas.toJSON())) // Update storage
+                onSave(canvas.toJSON())
             }
         })
 
@@ -94,10 +103,11 @@ function AnnotationChunk({ width, height, index, activeTool, clearTrigger, songI
             isMounted.current = false
             try { canvas.dispose() } catch (e) { }
         }
-    }, [width, height, index, songId]) // Re-run if songId changes
+    }, [width, height]) // Depend only on dimensions (and implicit mount). data changes handled below? NO. 
+    // NOTE: We do NOT want to re-init if initialData changes, unless we want to support real-time collaboration updates.
+    // For now, simpler: Only load initialData on mount or if keys change.
 
-    // ... (Keep existing activeTool and clearTrigger useEffects exactly as they were) ...
-    // Re-paste the tool logic here:
+    // 2. Tool Logic
     useEffect(() => {
         if (!fabricRef.current) return
         const canvas = fabricRef.current
@@ -105,26 +115,26 @@ function AnnotationChunk({ width, height, index, activeTool, clearTrigger, songI
             canvas.isDrawingMode = true
             canvas.defaultCursor = 'crosshair'
             canvas.hoverCursor = 'crosshair'
-            canvas.off('mouse:down') // Disable eraser logic
+            canvas.off('mouse:down') // Disable eraser logic here? No, we handle it in 'mouse:down' check
         } else if (activeTool === 'eraser') {
             canvas.isDrawingMode = false
             canvas.defaultCursor = 'cell'
             canvas.hoverCursor = 'cell'
-            // Eraser logic is added in the init effect above
         } else {
             canvas.isDrawingMode = false
             canvas.defaultCursor = 'default'
         }
     }, [activeTool])
 
+    // 3. Clear Logic
     useEffect(() => {
         if (clearTrigger > 0 && fabricRef.current) {
             fabricRef.current.clear()
             fabricRef.current.backgroundColor = 'transparent'
             fabricRef.current.requestRenderAll()
-            localStorage.removeItem(`annotation-${songId}-tile-${index}`) // Updated Key
+            onSave(fabricRef.current.toJSON())
         }
-    }, [clearTrigger, index, songId])
+    }, [clearTrigger])
 
     const pointerEvents = activeTool === 'scroll' ? 'none' : 'auto'
 

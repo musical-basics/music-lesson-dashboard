@@ -8,21 +8,24 @@ function StudioContent() {
     const searchParams = useSearchParams()
     const [token, setToken] = useState("")
 
-    // 1. Get Params from URL
-    // Default to a random room if none provided (for testing)
+    // URL PARAMS
     const roomName = searchParams.get('room') || `studio-test`
-    // Default name from URL or generic
-    const initialName = searchParams.get('name') || ''
-    // THE SECRET KEY
+    const initialName = searchParams.get('name') || 'Guest' // User's display name
     const secretKey = searchParams.get('key') || ''
 
-    // Visual indicator (Real security is in the API)
+    // NEW: Student Context
+    // If I am the teacher, I might put ?studentName=Alice in the URL
+    // If the student joins, they are the student.
+    // For simplicity: We use a specific 'studentId' param to track the DATABASE context.
+    // If not provided, we just use 'guest_session'.
+    const studentId = searchParams.get('studentId') || 'guest_session'
+    const studentDisplayName = searchParams.get('studentName') || 'Guest Student'
+
+    // Visual Role Indicator
     const userRole = secretKey ? 'Teacher' : 'Student'
 
     const handleJoin = async (username: string) => {
         try {
-            // 2. Pass the Key to the API
-            // If key is missing/wrong, API gives student token.
             const resp = await fetch(`/api/token?room=${roomName}&username=${username}&key=${secretKey}`)
             const data = await resp.json()
             setToken(data.token)
@@ -36,6 +39,8 @@ function StudioContent() {
             <LiveSession
                 token={token}
                 serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL || ""}
+                studentId={studentId}          // <--- Context
+                studentName={studentDisplayName} // <--- Display
                 onDisconnect={() => setToken("")}
             />
         )
@@ -49,11 +54,7 @@ function StudioContent() {
             </div>
 
             <div className="w-full max-w-4xl h-[80vh] border border-zinc-800 rounded-xl overflow-hidden shadow-2xl bg-zinc-900/50 backdrop-blur">
-                {/* We pass the initial name from URL to GreenRoom if possible, 
-              but GreenRoom might manage its own state. 
-              For now we just pass the onJoin handler. 
-          */}
-                <GreenRoom onJoin={() => handleJoin(initialName || "Guest")} />
+                <GreenRoom onJoin={() => handleJoin(initialName)} />
             </div>
         </div>
     )
