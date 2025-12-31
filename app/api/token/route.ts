@@ -1,24 +1,44 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken } from "livekit-server-sdk";
+import { NextRequest, NextResponse } from "next/server";
 
-const apiKey = process.env.LIVEKIT_API_KEY;
-const apiSecret = process.env.LIVEKIT_API_SECRET;
+export async function GET(req: NextRequest) {
+    // 1. Parse Query Params
+    const room = req.nextUrl.searchParams.get("room");
+    const username = req.nextUrl.searchParams.get("username");
+    const key = req.nextUrl.searchParams.get("key"); // <--- The Secret Password
 
-export async function GET(request: NextRequest) {
-    if (!apiKey || !apiSecret) {
-        return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 });
+    if (!room) return NextResponse.json({ error: 'Missing "room" query parameter' }, { status: 400 });
+    if (!username) return NextResponse.json({ error: 'Missing "username" query parameter' }, { status: 400 });
+
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    const teacherSecret = process.env.TEACHER_SECRET_KEY;
+
+    if (!apiKey || !apiSecret || !teacherSecret) {
+        return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
     }
 
-    const searchParams = request.nextUrl.searchParams;
-    const room = searchParams.get('room') || 'quick-chat';
-    const username = searchParams.get('username') || 'user';
+    // 2. Verify Identity
+    // If the key in the URL matches the env variable, they are the Teacher.
+    const isTeacher = key === teacherSecret;
 
+    // 3. Create Token with Specific Permissions
     const at = new AccessToken(apiKey, apiSecret, {
         identity: username,
-        name: username,
+        // Add metadata so the frontend knows who is who (for UI features)
+        metadata: JSON.stringify({ role: isTeacher ? 'teacher' : 'student' }),
     });
 
-    at.addGrant({ roomJoin: true, room: room, canPublish: true, canSubscribe: true });
+    at.addGrant({
+        room,
+        roomJoin: true,
+        canPublish: true,
+        canSubscribe: true,
+        // TEACHER POWERS: Only teachers can update metadata or remove others
+        canPublishData: true,
+        canUpdateOwnMetadata: isTeacher,
+        roomAdmin: isTeacher, // <--- This is the critical security flag
+    });
 
     return NextResponse.json({ token: await at.toJwt() });
 }
