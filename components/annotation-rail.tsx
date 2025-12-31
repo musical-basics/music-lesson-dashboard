@@ -10,11 +10,12 @@ interface AnnotationRailProps {
     clearTrigger: number
     data: AnnotationState
     onSave: (newData: AnnotationState) => void
+    color: string // <--- NEW PROP
 }
 
 const CHUNK_SIZE = 2000;
 
-export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, data, onSave }: AnnotationRailProps) {
+export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, data, onSave, color }: AnnotationRailProps) {
     const chunkCount = Math.ceil(totalWidth / CHUNK_SIZE);
 
     const handleChunkSave = (index: number, chunkData: any) => {
@@ -39,18 +40,20 @@ export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, d
                     clearTrigger={clearTrigger}
                     initialData={data[i]} // Pass specific chunk data
                     onSave={(chunkData) => handleChunkSave(i, chunkData)}
+                    color={color}
                 />
             ))}
         </div>
     )
 }
 
-function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData, onSave }: {
+function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData, onSave, color }: {
     width: number, height: number, index: number,
     activeTool: 'scroll' | 'pen' | 'eraser',
     clearTrigger: number,
     initialData: any,
-    onSave: (data: any) => void
+    onSave: (data: any) => void,
+    color: string
 }) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const fabricRef = useRef<Canvas | null>(null)
@@ -70,7 +73,7 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
 
         // Setup Brush
         const brush = new PencilBrush(canvas)
-        brush.color = "#ff0000"
+        brush.color = color || "#ff0000"
         brush.width = 4
         canvas.freeDrawingBrush = brush
 
@@ -92,7 +95,7 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             isMounted.current = false
             try { canvas.dispose() } catch (e) { }
         }
-    }, [width, height])
+    }, [width, height, color]) // Added color dependency
 
     // 2. REACTIVE DATA LOADER (The Fix)
     // This watches 'initialData'. If it changes (e.g. swiching students),
@@ -129,6 +132,11 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             canvas.defaultCursor = 'crosshair'
             canvas.hoverCursor = 'crosshair'
             canvas.off('mouse:down')
+
+            // Update brush color if changed while tool is active
+            if (canvas.freeDrawingBrush) {
+                canvas.freeDrawingBrush.color = color || "#ff0000"
+            }
         } else if (activeTool === 'eraser') {
             canvas.isDrawingMode = false
             canvas.defaultCursor = 'cell'
@@ -148,7 +156,7 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             canvas.defaultCursor = 'default'
             canvas.off('mouse:down')
         }
-    }, [activeTool])
+    }, [activeTool, color]) // Added color dependency
 
     // 4. Clear Logic
     useEffect(() => {

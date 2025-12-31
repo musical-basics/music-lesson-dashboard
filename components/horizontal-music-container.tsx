@@ -8,7 +8,11 @@ import { useLessonState } from '@/hooks/use-lesson-state'
 interface HorizontalMusicContainerProps {
     xmlUrl: string
     songId: string
-    studentId: string // <--- New Context
+    studentId: string
+    // --- NEW CONTROL PROPS ---
+    externalTool?: 'scroll' | 'pen' | 'eraser'
+    externalColor?: string
+    hideToolbar?: boolean
 }
 
 type BookmarkData = {
@@ -16,14 +20,28 @@ type BookmarkData = {
     pixelX: number;
 }
 
-export function HorizontalMusicContainer({ xmlUrl, songId, studentId }: HorizontalMusicContainerProps) {
+export function HorizontalMusicContainer({
+    xmlUrl,
+    songId,
+    studentId,
+    externalTool,
+    externalColor,
+    hideToolbar
+}: HorizontalMusicContainerProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
 
     const [isLoaded, setIsLoaded] = useState(false)
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
-    const [activeTool, setActiveTool] = useState<'scroll' | 'pen' | 'eraser'>('scroll')
+
+    // Internal state (still used if no external control provided)
+    const [internalTool, setInternalTool] = useState<'scroll' | 'pen' | 'eraser'>('scroll')
+
+    // Decided: If external prop exists, use it. Otherwise use internal.
+    const activeTool = externalTool || internalTool
+    const activeColor = externalColor || "#ff0000"
+
     const [clearTrigger, setClearTrigger] = useState(0)
     const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
 
@@ -100,35 +118,37 @@ export function HorizontalMusicContainer({ xmlUrl, songId, studentId }: Horizont
     return (
         <div className="flex flex-col h-full bg-zinc-900">
 
-            {/* Toolbar */}
-            <div className="h-12 bg-zinc-800 border-b border-zinc-700 flex items-center px-4 justify-between shrink-0">
-                <div className="flex gap-2">
-                    <button onClick={() => setActiveTool('scroll')} className={getBtnClass('scroll')}>
-                        <Hand className="w-4 h-4" /> Scroll
-                    </button>
-                    <button onClick={() => setActiveTool('pen')} className={getBtnClass('pen')}>
-                        <Pencil className="w-4 h-4" /> Annotate
-                    </button>
-                    <button onClick={() => setActiveTool('eraser')} className={getBtnClass('eraser')}>
-                        <Eraser className="w-4 h-4" /> Eraser
-                    </button>
-                    <div className="w-px h-6 bg-zinc-700 mx-2" />
-                    <button
-                        onClick={() => { if (confirm("Clear all?")) setClearTrigger(p => p + 1) }}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-red-400 hover:bg-red-900/30 transition-colors"
-                    >
-                        <Trash2 className="w-4 h-4" /> Clear All
-                    </button>
-                </div>
+            {/* ONLY SHOW INTERNAL TOOLBAR IF NOT HIDDEN */}
+            {!hideToolbar && (
+                <div className="h-12 bg-zinc-800 border-b border-zinc-700 flex items-center px-4 justify-between shrink-0">
+                    <div className="flex gap-2">
+                        <button onClick={() => setInternalTool('scroll')} className={getBtnClass('scroll')}>
+                            <Hand className="w-4 h-4" /> Scroll
+                        </button>
+                        <button onClick={() => setInternalTool('pen')} className={getBtnClass('pen')}>
+                            <Pencil className="w-4 h-4" /> Annotate
+                        </button>
+                        <button onClick={() => setInternalTool('eraser')} className={getBtnClass('eraser')}>
+                            <Eraser className="w-4 h-4" /> Eraser
+                        </button>
+                        <div className="w-px h-6 bg-zinc-700 mx-2" />
+                        <button
+                            onClick={() => { if (confirm("Clear all?")) setClearTrigger(p => p + 1) }}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-red-400 hover:bg-red-900/30 transition-colors"
+                        >
+                            <Trash2 className="w-4 h-4" /> Clear All
+                        </button>
+                    </div>
 
-                <div className="flex items-center gap-4">
-                    {!isLoaded && (
-                        <div className="flex items-center gap-2 text-indigo-400 text-xs animate-pulse">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Processing Score...
-                        </div>
-                    )}
+                    <div className="flex items-center gap-4">
+                        {!isLoaded && (
+                            <div className="flex items-center gap-2 text-indigo-400 text-xs animate-pulse">
+                                <Loader2 className="w-3 h-3 animate-spin" /> Processing Score...
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div
                 ref={scrollContainerRef}
@@ -147,6 +167,7 @@ export function HorizontalMusicContainer({ xmlUrl, songId, studentId }: Horizont
                             clearTrigger={clearTrigger}
                             data={data}
                             onSave={saveData}
+                            color={activeColor}
                         />
                     )}
                 </div>

@@ -29,6 +29,7 @@ import {
 } from "lucide-react"
 import { VideoConference } from "@livekit/components-react"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { HorizontalMusicContainer } from "@/components/horizontal-music-container"
 
 type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
 type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | null
@@ -447,70 +448,15 @@ export function LessonInterface() {
                       </div>
                     </div>
 
-                    <div
-                      ref={containerRef}
-                      className="flex-1 relative bg-muted/30"
-                      style={{ cursor: activeTool ? "crosshair" : "default" }}
-                    >
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="text-center space-y-3 lg:space-y-4 p-4 lg:p-8">
-                          <div className="w-20 h-20 lg:w-32 lg:h-32 mx-auto rounded-2xl bg-secondary/50 border-2 border-dashed border-border flex items-center justify-center">
-                            <Music className="w-10 h-10 lg:w-16 lg:h-16 text-muted-foreground" />
-                          </div>
-                          <div className="space-y-1 lg:space-y-2">
-                            <p className="text-base lg:text-lg font-medium text-foreground">XML-OSMD Sheet Music Canvas</p>
-                            <p className="text-xs lg:text-sm text-muted-foreground max-w-md">
-                              Sheet music will render here using OpenSheetMusicDisplay.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <canvas
-                        ref={canvasRef}
-                        className="absolute inset-0 w-full h-full"
-                        onMouseDown={handleCanvasMouseDown}
-                        onMouseMove={handleCanvasMouseMove}
-                        onMouseUp={handleCanvasMouseUp}
-                        onMouseLeave={handleCanvasMouseUp}
-                        onTouchStart={handleCanvasMouseDown}
-                        onTouchMove={handleCanvasMouseMove}
-                        onTouchEnd={handleCanvasMouseUp}
+                    <div className="flex-1 relative bg-zinc-900 overflow-hidden">
+                      <HorizontalMusicContainer
+                        xmlUrl="/xmls/La Campanella Remix v8.musicxml"
+                        songId="la-campanella"
+                        studentId="student-1" // This should eventually come from context
+                        hideToolbar={true}
+                        externalTool={activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll')}
+                        externalColor={penColor}
                       />
-
-                      {textAnnotations.map((annotation) => (
-                        <div
-                          key={annotation.id}
-                          className="absolute text-sm font-medium pointer-events-none"
-                          style={{
-                            left: annotation.x,
-                            top: annotation.y,
-                            color: annotation.color,
-                            textShadow: "0 1px 2px rgba(0,0,0,0.5)",
-                          }}
-                        >
-                          {annotation.text}
-                        </div>
-                      ))}
-
-                      {isAddingText && pendingTextPosition && (
-                        <div className="absolute z-50" style={{ left: pendingTextPosition.x, top: pendingTextPosition.y }}>
-                          <input
-                            type="text"
-                            autoFocus
-                            className="px-2 py-1 text-sm bg-card border border-border rounded shadow-lg min-w-[120px]"
-                            placeholder="Enter text..."
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleAddText((e.target as HTMLInputElement).value)
-                              else if (e.key === "Escape") {
-                                setIsAddingText(false)
-                                setPendingTextPosition(null)
-                              }
-                            }}
-                            onBlur={(e) => handleAddText(e.target.value)}
-                          />
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
