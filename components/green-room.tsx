@@ -228,9 +228,9 @@ export function GreenRoom({ onJoin }: GreenRoomProps) {
                   <SelectValue placeholder="Select Mic" />
                 </SelectTrigger>
                 <SelectContent>
-                  {audioDevices.map(device => (
-                    <SelectItem key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Microphone ${device.deviceId.slice(0, 5)}`}
+                  {audioDevices.map((device, i) => (
+                    <SelectItem key={device.deviceId} value={device.deviceId || `mic-${i}`}>
+                      {device.label || `Microphone ${i + 1}`}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -258,9 +258,9 @@ export function GreenRoom({ onJoin }: GreenRoomProps) {
                 <SelectValue placeholder="Select Camera" />
               </SelectTrigger>
               <SelectContent>
-                {videoDevices.map(device => (
-                  <SelectItem key={device.deviceId} value={device.deviceId}>
-                    {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
+                {videoDevices.map((device, i) => (
+                  <SelectItem key={device.deviceId} value={device.deviceId || `cam-${i}`}>
+                    {device.label || `Camera ${i + 1}`}
                   </SelectItem>
                 ))}
               </SelectContent>
