@@ -1,19 +1,18 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
+import Link from "next/link"
+import { useSearchParams } from 'next/navigation'
 import { GreenRoom } from "@/components/green-room"
 import { LessonInterface } from "@/components/lesson-interface"
 import { RecitalStage } from "@/components/recital-stage"
-import { Music, Users, Video } from "lucide-react"
-import { LiveKitRoom, RoomAudioRenderer, VideoConference } from "@livekit/components-react"
+import { Music, Users, Video, LayoutDashboard, Menu } from "lucide-react"
+import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react"
 import "@livekit/components-styles"
-
-type View = "green-room" | "lesson" | "recital"
-
-
-import { Menu } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
+
+type View = "green-room" | "lesson" | "recital"
 
 function SidebarContent({
   currentView,
@@ -44,6 +43,15 @@ function SidebarContent({
       </div>
 
       <nav className="flex-1 p-4 space-y-2">
+        <Link
+          href="/dashboard"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-all"
+        >
+          <LayoutDashboard className="w-5 h-5" />
+          <span className="font-medium">Dashboard</span>
+        </Link>
+        <div className="mx-4 my-2 border-t border-border/50" />
+
         <button
           onClick={() => handleNav("green-room")}
           className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${currentView === "green-room"
@@ -84,9 +92,6 @@ function SidebarContent({
     </div>
   )
 }
-
-import { Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
 
 function MusicStudioContent() {
   const [currentView, setCurrentView] = useState<View>("green-room")
