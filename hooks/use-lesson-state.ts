@@ -1,45 +1,50 @@
 "use client"
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
-// We store a map of chunkIndex -> fabricJSON
+// The data shape: A dictionary where keys are chunk indexes ("0", "1") 
+// and values are Fabric.js JSON objects
 export type AnnotationState = Record<string, any>
 
 export function useLessonState(studentId: string, songId: string) {
     const [state, setState] = useState<AnnotationState>({})
-    const [isSaving, setIsSaving] = useState(false)
+    const [isLoaded, setIsLoaded] = useState(false)
+    const isSaving = useRef(false)
 
-    // 1. LOAD: Fetch data when Student or Song changes
+    // 1. LOAD: Run whenever Student or Song changes
     useEffect(() => {
-        // Fallback for missing IDs
-        if (!studentId || !songId) return
+        setIsLoaded(false)
 
-        const key = `lesson_db:${studentId}:${songId}`
-        const saved = localStorage.getItem(key)
+        // Unique Database Key
+        const dbKey = `lesson_db:${studentId}:${songId}`
+        const saved = localStorage.getItem(dbKey)
 
         if (saved) {
             try {
                 setState(JSON.parse(saved))
-            } catch (e) { console.error("Corrupt lesson state", e) }
+            } catch (e) {
+                console.error("Corrupt lesson state", e)
+                setState({})
+            }
         } else {
-            setState({})
+            setState({}) // Clean slate for new student/song
         }
+
+        setIsLoaded(true)
     }, [studentId, songId])
 
-    // 2. SAVE: Debounced save function
-    const saveState = useCallback((newState: AnnotationState) => {
-        setState(newState)
-        setIsSaving(true)
+    // 2. SAVE: Function to update state and persist to storage
+    const saveState = useCallback((newData: AnnotationState) => {
+        // Optimistic update (update UI immediately)
+        setState(newData)
 
-        const key = `lesson_db:${studentId}:${songId}`
-        localStorage.setItem(key, JSON.stringify(newState))
-
-        // Fake network delay simulation
-        setTimeout(() => setIsSaving(false), 500)
+        // Save to Disk
+        const dbKey = `lesson_db:${studentId}:${songId}`
+        localStorage.setItem(dbKey, JSON.stringify(newData))
     }, [studentId, songId])
 
     return {
-        annotationState: state,
-        saveAnnotationState: saveState,
-        isSaving
+        data: state,
+        saveData: saveState,
+        isLoaded
     }
 }

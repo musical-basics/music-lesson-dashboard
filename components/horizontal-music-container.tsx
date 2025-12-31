@@ -28,7 +28,7 @@ export function HorizontalMusicContainer({ xmlUrl, songId, studentId }: Horizont
     const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
 
     // HOOK: Managed Lesson State
-    const { annotationState, saveAnnotationState, isSaving } = useLessonState(studentId, songId)
+    const { data, saveData, isLoaded: isStateLoaded } = useLessonState(studentId, songId)
 
     useEffect(() => {
         if (!containerRef.current) return
@@ -122,12 +122,6 @@ export function HorizontalMusicContainer({ xmlUrl, songId, studentId }: Horizont
                 </div>
 
                 <div className="flex items-center gap-4">
-                    {/* Save Indicator */}
-                    <div className={`flex items-center gap-1.5 text-xs transition-opacity ${isSaving ? 'opacity-100' : 'opacity-0'}`}>
-                        <Cloud className="w-3 h-3 text-indigo-400" />
-                        <span className="text-indigo-400">Saving...</span>
-                    </div>
-
                     {!isLoaded && (
                         <div className="flex items-center gap-2 text-indigo-400 text-xs animate-pulse">
                             <Loader2 className="w-3 h-3 animate-spin" /> Processing Score...
@@ -143,15 +137,16 @@ export function HorizontalMusicContainer({ xmlUrl, songId, studentId }: Horizont
             >
                 <div style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
                     <div ref={containerRef} className="absolute inset-0" />
-                    {isLoaded && (
+
+                    {/* The Rail needs both the Music (isLoaded) and the Data (isStateLoaded) */}
+                    {isLoaded && isStateLoaded && (
                         <AnnotationRail
                             totalWidth={dimensions.width + 200}
                             height={dimensions.height}
                             activeTool={activeTool}
                             clearTrigger={clearTrigger}
-                            songId={songId}
-                            data={annotationState} // Pass Data
-                            onSave={saveAnnotationState} // Pass Save Function
+                            data={data}
+                            onSave={saveData}
                         />
                     )}
                 </div>
