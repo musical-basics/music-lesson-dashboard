@@ -95,7 +95,8 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             isMounted.current = false
             try { canvas.dispose() } catch (e) { }
         }
-    }, [width, height, color]) // Added color dependency
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [width, height]) // FIX: Removed 'color' - color changes are handled by Tool Logic effect
 
     // 2. REACTIVE DATA LOADER (The Fix)
     // This watches 'initialData'. If it changes (e.g. swiching students),
