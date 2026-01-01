@@ -36,14 +36,18 @@ export default function Dashboard() {
         fetch('/api/students')
             .then(res => res.json())
             .then(data => {
-                // The API currently returns { id, lastSeen }. 
-                // We might need to fetch detailed data if we want to show Name/Email in the list, 
-                // but for now let's just show ID as the primary key.
-                setStudents(data)
+                // Determine if data is an array
+                if (Array.isArray(data)) {
+                    setStudents(data)
+                } else {
+                    console.error("API returned invalid data (expected array):", data)
+                    setStudents([])
+                }
                 setIsLoading(false)
             })
             .catch(err => {
                 console.error("Failed to load students", err)
+                setStudents([])
                 setIsLoading(false)
             })
     }
