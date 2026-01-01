@@ -57,10 +57,13 @@ export function HorizontalMusicContainer({
         containerRef.current.innerHTML = ''
 
         const osmd = new OpenSheetMusicDisplay(containerRef.current, {
-            autoResize: false, backend: "svg", drawingParameters: "compacttight",
+            autoResize: false, backend: "svg", drawingParameters: "default",
             drawTitle: false, drawSubtitle: false, drawComposer: false,
             renderSingleHorizontalStaffline: true
         })
+        osmd.EngravingRules.PageTopMargin = 10.0
+        osmd.EngravingRules.PageBottomMargin = 10.0
+        osmd.EngravingRules.StaffDistance = 4.0
         osmdRef.current = osmd
 
         async function load() {
@@ -74,7 +77,17 @@ export function HorizontalMusicContainer({
                 const lastMeasure = sheet.MeasureList[sheet.MeasureList.length - 1][0]
                 const width = (lastMeasure.PositionAndShape.AbsolutePosition.x +
                     lastMeasure.PositionAndShape.BorderRight) * unitInPixels
-                const height = Math.max(600, containerRef.current?.scrollHeight || 0)
+
+                // Try to get exact SVG height to fit tightly
+                let height = 300 // Fallback
+                const svgElement = containerRef.current?.querySelector('svg')
+                if (svgElement) {
+                    height = svgElement.getBoundingClientRect().height
+                } else {
+                    height = containerRef.current?.scrollHeight || 300
+                }
+                // Add a buffer to match top margin visual
+                height += 50
 
                 setDimensions({ width, height })
 
@@ -153,9 +166,9 @@ export function HorizontalMusicContainer({
             <div
                 ref={scrollContainerRef}
                 onWheel={handleWheel}
-                className={`flex-1 overflow-x-auto overflow-y-auto relative bg-white ${activeTool !== 'scroll' ? 'touch-none' : ''}`}
+                className={`flex-1 overflow-x-auto overflow-y-auto relative bg-zinc-900 ${activeTool !== 'scroll' ? 'touch-none' : ''}`}
             >
-                <div style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
+                <div className="bg-white" style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
                     <div ref={containerRef} className="absolute inset-0" />
 
                     {/* The Rail needs both the Music (isLoaded) and the Data (isStateLoaded) */}
