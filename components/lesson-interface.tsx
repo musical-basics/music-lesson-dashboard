@@ -31,6 +31,8 @@ import {
 import { VideoConference } from "@livekit/components-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { HorizontalMusicContainer, HorizontalMusicContainerHandle } from "@/components/horizontal-music-container"
+import { PieceSelector } from "@/components/piece-selector"
+import { Piece } from "@/types/piece"
 
 type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
 type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | null
@@ -73,6 +75,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>("sheet-music")
   const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
+  const [selectedPiece, setSelectedPiece] = useState<Piece | null>(null)
 
   const [activeTool, setActiveTool] = useState<AnnotationTool>(null)
   const [penColor, setPenColor] = useState("#ef4444")
@@ -445,8 +448,20 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                   <div className="flex-1 rounded-xl border-2 border-border bg-card overflow-hidden flex flex-col">
                     <div className="px-3 lg:px-4 py-2 lg:py-3 border-b border-border bg-secondary/50 flex items-center justify-between">
                       <div className="flex items-center gap-2 lg:gap-3">
-                        <Music className="w-4 h-4 lg:w-5 lg:h-5 text-primary" />
-                        <span className="font-medium text-foreground text-sm lg:text-base">Sheet Music</span>
+                        {!isStudent ? (
+                          <PieceSelector
+                            userId="teacher-1"
+                            selectedPiece={selectedPiece}
+                            onSelectPiece={setSelectedPiece}
+                          />
+                        ) : (
+                          <>
+                            <Music className="w-4 h-4 lg:w-5 lg:h-5 text-primary" />
+                            <span className="font-medium text-foreground text-sm lg:text-base">
+                              {selectedPiece?.title || "Sheet Music"}
+                            </span>
+                          </>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         {/* Hide annotation toolbar for students */}
@@ -460,16 +475,21 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                     </div>
 
                     <div className="flex-1 relative bg-zinc-900 overflow-hidden">
-                      <HorizontalMusicContainer
-                        ref={musicContainerRef}
-                        xmlUrl="/xmls/La Campanella Remix v8.musicxml"
-                        songId="la-campanella"
-                        studentId={studentId || "student-1"}
-                        hideToolbar={isStudent} // Teacher sees toolbar and broadcasts, Student hides and receives
-                        // Force scroll mode for students (read-only), otherwise use chosen tool
-                        externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll'))}
-                        externalColor={penColor}
-                      />
+                      {selectedPiece ? (
+                        <HorizontalMusicContainer
+                          ref={musicContainerRef}
+                          xmlUrl={selectedPiece.xml_url}
+                          songId={selectedPiece.id}
+                          studentId={studentId || "student-1"}
+                          hideToolbar={isStudent}
+                          externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll'))}
+                          externalColor={penColor}
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-zinc-500">
+                          {isStudent ? "Waiting for teacher to select a piece..." : "Select a piece to begin"}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
