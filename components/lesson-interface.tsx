@@ -30,7 +30,7 @@ import {
 } from "lucide-react"
 import { VideoConference } from "@livekit/components-react"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { HorizontalMusicContainer } from "@/components/horizontal-music-container"
+import { HorizontalMusicContainer, HorizontalMusicContainerHandle } from "@/components/horizontal-music-container"
 
 type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
 type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | null
@@ -87,6 +87,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const musicContainerRef = useRef<HorizontalMusicContainerHandle>(null)
 
   const colors = ["#ef4444", "#8b5cf6", "#22c55e", "#3b82f6", "#f59e0b"]
 
@@ -356,15 +357,14 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
       <div className="w-px h-6 bg-border mx-1" />
 
       {/* Undo/Redo/Clear */}
-      <Button variant="ghost" size="sm" className="w-8 h-8 p-0" onClick={undo} disabled={historyIndex < 0} title="Undo">
+      <Button variant="ghost" size="sm" className="w-8 h-8 p-0" onClick={() => musicContainerRef.current?.undo()} title="Undo">
         <Undo2 className="w-4 h-4" />
       </Button>
       <Button
         variant="ghost"
         size="sm"
         className="w-8 h-8 p-0"
-        onClick={redo}
-        disabled={historyIndex >= history.length - 1}
+        onClick={() => musicContainerRef.current?.redo()}
         title="Redo"
       >
         <Redo2 className="w-4 h-4" />
@@ -461,6 +461,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
                     <div className="flex-1 relative bg-zinc-900 overflow-hidden">
                       <HorizontalMusicContainer
+                        ref={musicContainerRef}
                         xmlUrl="/xmls/La Campanella Remix v8.musicxml"
                         songId="la-campanella"
                         studentId={studentId || "student-1"}
