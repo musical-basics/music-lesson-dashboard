@@ -3,10 +3,10 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // Initialize Supabase Admin Client
 // We use the Service Role Key to bypass RLS if needed, or just Anon if policies are open
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY! // Use Service Role for full access
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://site.com'
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role'
+
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)

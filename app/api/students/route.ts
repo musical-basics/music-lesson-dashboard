@@ -2,10 +2,10 @@ import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
 // Use Service Role to bypass RLS (Admin access)
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://site.com'
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role'
+
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function GET() {
     // Fetch all unique student_ids from the annotations table
