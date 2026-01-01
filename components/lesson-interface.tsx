@@ -464,7 +464,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                         xmlUrl="/xmls/La Campanella Remix v8.musicxml"
                         songId="la-campanella"
                         studentId={studentId || "student-1"}
-                        hideToolbar={true}
+                        hideToolbar={isStudent} // Teacher sees toolbar and broadcasts, Student hides and receives
                         // Force scroll mode for students (read-only), otherwise use chosen tool
                         externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll'))}
                         externalColor={penColor}
