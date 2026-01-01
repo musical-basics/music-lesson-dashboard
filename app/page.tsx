@@ -112,6 +112,26 @@ function MusicStudioContent() {
     audioDeviceId: string;
   } | null>(null);
 
+  // 2. AUTO-JOIN LOGIC (The Fix)
+  useEffect(() => {
+    // If we have a room and a name in the URL, we should connect immediately
+    if (roomParam && nameParam && !token) {
+      const fetchToken = async () => {
+        try {
+          console.log(`🔌 Auto-joining room: ${roomParam} as ${nameParam}`)
+          const resp = await fetch(
+            `/api/token?room=${roomParam}&username=${nameParam}&role=${roleParam}&key=${keyParam}`
+          )
+          const data = await resp.json()
+          setToken(data.token)
+        } catch (e) {
+          console.error("Failed to auto-join:", e)
+        }
+      }
+      fetchToken()
+    }
+  }, [roomParam, nameParam, roleParam, keyParam, token])
+
   // Sync 'currentView' state with URL param if it changes externally
   useEffect(() => {
     if (viewParam && ['green-room', 'lesson', 'recital'].includes(viewParam)) {
