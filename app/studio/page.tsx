@@ -1,69 +1,173 @@
 "use client"
-import { useState, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { GreenRoom } from '@/components/green-room'
-import { LiveSession } from '@/components/live-session'
 
-function StudioContent() {
-    const searchParams = useSearchParams()
-    const [token, setToken] = useState("")
+import { useState, useEffect } from "react"
+import { createClient } from "@supabase/supabase-js"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Music, Video, FileMusic, Trash2, Users, Library, ExternalLink } from "lucide-react"
+import { AddPieceModal } from "@/components/studio/add-piece-modal"
+import { Piece } from "@/types/piece"
 
-    // URL PARAMS
-    const roomName = searchParams.get('room') || `studio-test`
-    const initialName = searchParams.get('name') || 'Guest' // User's display name
-    const secretKey = searchParams.get('key') || ''
+// Initialize Supabase
+const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
-    // NEW: Student Context
-    // If I am the teacher, I might put ?studentName=Alice in the URL
-    // If the student joins, they are the student.
-    // For simplicity: We use a specific 'studentId' param to track the DATABASE context.
-    // If not provided, we just use 'guest_session'.
-    const studentId = searchParams.get('studentId') || 'guest_session'
-    const studentDisplayName = searchParams.get('studentName') || 'Guest Student'
+export default function StudioPage() {
+    const [pieces, setPieces] = useState<Piece[]>([])
+    const [userId, setUserId] = useState<string>("teacher-1") // Default for now
+    const [loading, setLoading] = useState(true)
 
-    // Visual Role Indicator
-    const userRole = secretKey ? 'Teacher' : 'Student'
-
-    const handleJoin = async (username: string) => {
+    const fetchPieces = async () => {
         try {
-            const resp = await fetch(`/api/token?room=${roomName}&username=${username}&key=${secretKey}`)
-            const data = await resp.json()
-            setToken(data.token)
-        } catch (e) {
-            console.error("Failed to get token:", e)
+            const { data, error } = await supabase
+                .from('pieces')
+                .select('*')
+                .order('created_at', { ascending: false })
+
+            if (error) throw error
+            setPieces(data || [])
+        } catch (error) {
+            console.error("Error fetching pieces:", error)
+        } finally {
+            setLoading(false)
         }
     }
 
-    if (token) {
-        return (
-            <LiveSession
-                token={token}
-                serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL || ""}
-                studentId={studentId}          // <--- Context
-                studentName={studentDisplayName} // <--- Display
-                onDisconnect={() => setToken("")}
-            />
-        )
+    // Delete Piece Logic
+    const handleDelete = async (id: string) => {
+        if (!confirm("Are you sure you want to delete this piece?")) return
+
+        const { error } = await supabase.from('pieces').delete().eq('id', id)
+        if (!error) {
+            setPieces(pieces.filter(p => p.id !== id))
+        }
     }
 
-    return (
-        <div className="h-screen w-full bg-zinc-950 flex items-center justify-center relative">
-            {/* Role Badge */}
-            <div className="absolute top-4 right-4 px-3 py-1 rounded-full bg-zinc-800 border border-zinc-700 text-xs font-mono text-zinc-400">
-                Role: <span className={userRole === 'Teacher' ? 'text-indigo-400' : 'text-zinc-200'}>{userRole}</span>
-            </div>
+    useEffect(() => {
+        fetchPieces()
+    }, [])
 
-            <div className="w-full max-w-4xl h-[80vh] border border-zinc-800 rounded-xl overflow-hidden shadow-2xl bg-zinc-900/50 backdrop-blur">
-                <GreenRoom onJoin={() => handleJoin(initialName)} />
-            </div>
+    return (
+        <div className="flex flex-col h-screen bg-black text-white">
+            {/* Header */}
+            <header className="h-16 border-b border-zinc-800 flex items-center px-6 bg-zinc-900/50">
+                <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+                    Teacher Studio
+                </h1>
+            </header>
+
+            <main className="flex-1 p-6 overflow-auto">
+                <div className="max-w-6xl mx-auto">
+
+                    <Tabs defaultValue="library" className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <TabsList className="bg-zinc-800 border-zinc-700">
+                                <TabsTrigger value="students" className="data-[state=active]:bg-zinc-700">
+                                    <Users className="w-4 h-4 mr-2" /> Students
+                                </TabsTrigger>
+                                <TabsTrigger value="library" className="data-[state=active]:bg-zinc-700">
+                                    <Library className="w-4 h-4 mr-2" /> Library
+                                </TabsTrigger>
+                            </TabsList>
+                        </div>
+
+                        {/* --- LIBRARY TAB --- */}
+                        <TabsContent value="library" className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-bold">Repertoire Library</h2>
+                                    <p className="text-zinc-400">Manage sheet music and resources for your students.</p>
+                                </div>
+                                {/* The Add Button */}
+                                <AddPieceModal
+                                    userId={userId}
+                                    onPieceAdded={fetchPieces}
+                                />
+                            </div>
+
+                            {loading ? (
+                                <div className="text-zinc-500">Loading library...</div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {pieces.map((piece) => (
+                                        <Card key={piece.id} className="bg-zinc-900 border-zinc-800 hover:border-zinc-700 transition-colors">
+                                            <CardHeader className="pb-3">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <CardTitle className="text-lg text-white">{piece.title}</CardTitle>
+                                                        <CardDescription className="text-zinc-400">{piece.composer || "Unknown Composer"}</CardDescription>
+                                                    </div>
+                                                    {piece.difficulty && (
+                                                        <Badge variant="outline" className="border-indigo-500/30 text-indigo-400">
+                                                            {piece.difficulty}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="space-y-2 pb-3">
+                                                <div className="flex gap-2 flex-wrap">
+                                                    <Badge variant="secondary" className="bg-zinc-800 text-zinc-300">
+                                                        <FileMusic className="w-3 h-3 mr-1" /> XML
+                                                    </Badge>
+                                                    {piece.mp3_url && (
+                                                        <Badge variant="secondary" className="bg-zinc-800 text-zinc-300">
+                                                            <Music className="w-3 h-3 mr-1" /> MP3
+                                                        </Badge>
+                                                    )}
+                                                    {piece.youtube_url && (
+                                                        <a
+                                                            href={piece.youtube_url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex"
+                                                        >
+                                                            <Badge variant="secondary" className="bg-zinc-800 text-zinc-300 hover:bg-zinc-700">
+                                                                <Video className="w-3 h-3 mr-1" /> Video
+                                                                <ExternalLink className="w-2.5 h-2.5 ml-1" />
+                                                            </Badge>
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            </CardContent>
+                                            <CardFooter className="pt-0 flex justify-end gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-zinc-500 hover:text-red-400 hover:bg-red-900/10"
+                                                    onClick={() => handleDelete(piece.id)}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </CardFooter>
+                                        </Card>
+                                    ))}
+
+                                    {pieces.length === 0 && (
+                                        <div className="col-span-full text-center py-12 border-2 border-dashed border-zinc-800 rounded-lg">
+                                            <FileMusic className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                                            <p className="text-zinc-500 mb-4">No pieces found. Upload your first one!</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </TabsContent>
+
+                        {/* --- STUDENTS TAB (Placeholder) --- */}
+                        <TabsContent value="students">
+                            <div className="p-8 border border-zinc-800 rounded-lg bg-zinc-900/30 text-center text-zinc-500">
+                                <Users className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                                <p>Your student roster will go here.</p>
+                                <p className="text-sm mt-2">Manage students and schedule lessons.</p>
+                            </div>
+                        </TabsContent>
+
+                    </Tabs>
+                </div>
+            </main>
         </div>
-    )
-}
-
-export default function StudioPage() {
-    return (
-        <Suspense fallback={<div className="h-screen w-full bg-zinc-950 flex items-center justify-center text-zinc-500">Loading Studio...</div>}>
-            <StudioContent />
-        </Suspense>
     )
 }
