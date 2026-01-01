@@ -10,7 +10,7 @@ interface AnnotationRailProps {
     clearTrigger: number
     data: AnnotationState
     onSave: (newData: AnnotationState) => void
-    color: string // <--- NEW PROP
+    color: string
 }
 
 const CHUNK_SIZE = 2000;
@@ -25,6 +25,15 @@ export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, d
         })
     }
 
+    // ATOMIC CLEAR: Parent saves ONCE for everyone
+    useEffect(() => {
+        if (clearTrigger > 0) {
+            // Save an empty object to wipe the DB instantly
+            onSave({})
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clearTrigger]) // Intentionally excludes onSave to avoid loops
+
     return (
         <div
             className="absolute top-0 left-0 z-10 flex"
@@ -32,13 +41,14 @@ export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, d
         >
             {Array.from({ length: chunkCount }).map((_, i) => (
                 <AnnotationChunk
-                    key={`${i}-${JSON.stringify(data[i] || {}).slice(0, 50)}`} // Force re-mount when data changes
+                    // Force remount if data changes significantly to prevent visual ghosts
+                    key={`${i}-${Object.keys(data[i] || {}).length}`}
                     index={i}
                     width={i === chunkCount - 1 ? totalWidth % CHUNK_SIZE : CHUNK_SIZE}
                     height={height}
                     activeTool={activeTool}
                     clearTrigger={clearTrigger}
-                    initialData={data[i]} // Pass specific chunk data
+                    initialData={data[i]}
                     onSave={(chunkData) => handleChunkSave(i, chunkData)}
                     color={color}
                 />
@@ -47,7 +57,7 @@ export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, d
     )
 }
 
-function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData, onSave, color }: {
+function AnnotationChunk({ width, height, index, activeTool, clearTrigger, initialData, onSave, color }: {
     width: number, height: number, index: number,
     activeTool: 'scroll' | 'pen' | 'eraser',
     clearTrigger: number,
@@ -69,25 +79,20 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             height,
             backgroundColor: 'transparent',
             selection: false,
+            renderOnAddRemove: true,
         })
 
-        // Setup Brush
         const brush = new PencilBrush(canvas)
         brush.color = color || "#ff0000"
         brush.width = 4
         canvas.freeDrawingBrush = brush
 
-        // Save Events
         canvas.on('path:created', () => {
             if (isMounted.current) onSave(canvas.toJSON())
         })
 
-        // Eraser Events
-        canvas.on('mouse:down', (opt) => {
-            // We handle the actual removal logic in the Tool Effect below,
-            // but we need to trigger a save after the removal happens.
-            // We'll rely on the tool logic to call save, or do it here if needed.
-        })
+        // Eraser logic is handled in tool effect
+        canvas.on('mouse:down', () => { })
 
         fabricRef.current = canvas
 
@@ -96,32 +101,26 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             try { canvas.dispose() } catch (e) { }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [width, height]) // FIX: Removed 'color' - color changes are handled by Tool Logic effect
+    }, [width, height]) // Removed color from deps
 
-    // 2. REACTIVE DATA LOADER (The Fix)
-    // This watches 'initialData'. If it changes (e.g. swiching students),
-    // we wipe the canvas and load the new JSON.
+    // 2. REACTIVE DATA LOADER
     useEffect(() => {
         if (!fabricRef.current) return;
-
         const canvas = fabricRef.current;
 
-        // Avoid infinite loops: Only load if the canvas is empty or explicitly different
-        // Ideally, we trust the parent to only change initialData when switching contexts
-
-        if (initialData) {
+        if (initialData && Object.keys(initialData).length > 0) {
             try {
                 canvas.loadFromJSON(initialData, () => {
                     if (isMounted.current) canvas.requestRenderAll()
                 })
             } catch (e) { console.error("Error loading chunk", e) }
         } else {
-            // If no data exists for this student, clear the canvas!
+            // This handles the "Student Receive Clear" case
             canvas.clear();
             canvas.backgroundColor = 'transparent';
             canvas.requestRenderAll();
         }
-    }, [initialData]) // <--- THIS is what makes it switch between students
+    }, [initialData])
 
     // 3. Tool Logic
     useEffect(() => {
@@ -133,8 +132,6 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             canvas.defaultCursor = 'crosshair'
             canvas.hoverCursor = 'crosshair'
             canvas.off('mouse:down')
-
-            // Update brush color if changed while tool is active
             if (canvas.freeDrawingBrush) {
                 canvas.freeDrawingBrush.color = color || "#ff0000"
             }
@@ -143,13 +140,12 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             canvas.defaultCursor = 'cell'
             canvas.hoverCursor = 'cell'
 
-            // Re-bind eraser click logic here to ensure it uses current tool state
             canvas.off('mouse:down');
             canvas.on('mouse:down', (opt) => {
                 if (opt.target) {
                     canvas.remove(opt.target)
                     canvas.requestRenderAll()
-                    onSave(canvas.toJSON()) // Save after erase
+                    onSave(canvas.toJSON())
                 }
             })
         } else {
@@ -157,15 +153,15 @@ function AnnotationChunk({ width, height, activeTool, clearTrigger, initialData,
             canvas.defaultCursor = 'default'
             canvas.off('mouse:down')
         }
-    }, [activeTool, color]) // Added color dependency
+    }, [activeTool, color, onSave])
 
-    // 4. Clear Logic
+    // 4. VISUAL CLEAR (Visual Only - Parent handles DB save)
     useEffect(() => {
         if (clearTrigger > 0 && fabricRef.current) {
             fabricRef.current.clear()
             fabricRef.current.backgroundColor = 'transparent'
             fabricRef.current.requestRenderAll()
-            onSave(fabricRef.current.toJSON()) // Save the empty state
+            // REMOVED: onSave() - Parent now handles the atomic DB save
         }
     }, [clearTrigger])
 
