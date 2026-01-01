@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react"
 import Link from "next/link"
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { GreenRoom } from "@/components/green-room"
 import { LessonInterface } from "@/components/lesson-interface"
 import { RecitalStage } from "@/components/recital-stage"
@@ -94,45 +94,59 @@ function SidebarContent({
 }
 
 function MusicStudioContent() {
-  const [currentView, setCurrentView] = useState<View>("green-room")
+  const searchParams = useSearchParams()
+
+  // 1. READ URL PARAMS
+  const viewParam = searchParams.get('view') as View
+  const roomParam = searchParams.get('room')
+  const nameParam = searchParams.get('name')
+  const roleParam = searchParams.get('role') || 'student'
+  const keyParam = searchParams.get('key') || ''
+  const studentIdParam = searchParams.get('studentId')
+
+  const [currentView, setCurrentView] = useState<View>(viewParam || "green-room")
   const [token, setToken] = useState("")
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const searchParams = useSearchParams()
-  // Read "mode" from URL (default to student if missing)
-  const mode = searchParams.get('mode') || 'student'
-
   const [userChoices, setUserChoices] = useState<{
     videoDeviceId: string;
     audioDeviceId: string;
   } | null>(null);
 
+  // Sync 'currentView' state with URL param if it changes externally
   useEffect(() => {
-    (async () => {
-      try {
-        console.log("Fetching token..."); // LOG 1
-        console.log("Server URL:", process.env.NEXT_PUBLIC_LIVEKIT_URL); // Debug Server URL
+    if (viewParam && ['green-room', 'lesson', 'recital'].includes(viewParam)) {
+      setCurrentView(viewParam)
+    }
+  }, [viewParam])
 
-        // 1. Force a "Nuclear" Unique ID
-        // We add Date.now() to ensure it is impossible to clash
-        // This prevents the "Kick off" bug.
-        const timestamp = Date.now();
-        const randomId = Math.floor(Math.random() * 10000);
+  const handleGreenRoomJoin = async (choices: { videoDeviceId: string; audioDeviceId: string }) => {
+    setUserChoices(choices)
 
-        // Instead of 'teacher-main', we use 'teacher-1719283-992'
-        const uniqueIdentity = `${mode}-${timestamp}-${randomId}`;
+    // Determine Identity
+    // If name param exists (from Dashboard), use it. Otherwise generate random.
+    const identity = nameParam || `Guest-${Math.floor(Math.random() * 1000)}`
+    const roomName = roomParam || 'demo-room'
 
-        console.log("Generated Identity:", uniqueIdentity);
+    console.log("Joing Room:", roomName, "as", identity);
 
-        // 2. Fetch the token with this specific identity
-        const resp = await fetch(`/api/token?room=test&username=${uniqueIdentity}&role=${mode}`);
-        const data = await resp.json();
-        console.log("Token received:", data.token); // LOG 2
-        setToken(data.token);
-      } catch (e) {
-        console.error("Token fetch failed:", e); // LOG 3
+    try {
+      const resp = await fetch(
+        `/api/token?room=${roomName}&username=${identity}&role=${roleParam}&key=${keyParam}`
+      )
+      const data = await resp.json()
+      if (data.error) {
+        alert(data.error)
+        return
       }
-    })();
-  }, [mode]);
+      setToken(data.token)
+
+      // Auto-switch to lesson view
+      setCurrentView("lesson")
+    } catch (e) {
+      console.error("Failed to join:", e)
+      alert("Could not connect to room")
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
@@ -173,19 +187,20 @@ function MusicStudioContent() {
           audio={userChoices && currentView !== 'green-room' ? { deviceId: userChoices.audioDeviceId } : false}
           token={token}
           serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
-          connect={currentView !== 'green-room'}
+          connect={!!token}
           data-lk-theme="default"
           style={{ height: '100%' }}
         >
           {currentView === "green-room" && (
             <GreenRoom
-              onJoin={(choices) => {
-                setUserChoices(choices);
-                setCurrentView("lesson");
-              }}
+              onJoin={handleGreenRoomJoin}
             />
           )}
-          {currentView === "lesson" && <LessonInterface />}
+          {currentView === "lesson" && (
+            <LessonInterface
+              studentId={studentIdParam || 'guest'}
+            />
+          )}
           {currentView === "recital" && <RecitalStage />}
           <RoomAudioRenderer />
         </LiveKitRoom>

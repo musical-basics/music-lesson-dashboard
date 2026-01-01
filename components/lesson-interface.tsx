@@ -56,7 +56,11 @@ interface SavedAnnotations {
   sheetMusicId?: string
 }
 
-export function LessonInterface() {
+interface LessonInterfaceProps {
+  studentId?: string
+}
+
+export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const [isMuted, setIsMuted] = useState(false)
   const [isVideoOff, setIsVideoOff] = useState(false)
   const [isMusicMode, setIsMusicMode] = useState(true)
@@ -452,7 +456,7 @@ export function LessonInterface() {
                       <HorizontalMusicContainer
                         xmlUrl="/xmls/La Campanella Remix v8.musicxml"
                         songId="la-campanella"
-                        studentId="student-1" // This should eventually come from context
+                        studentId={studentId || "student-1"} // This should eventually come from context
                         hideToolbar={true}
                         externalTool={activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll')}
                         externalColor={penColor}

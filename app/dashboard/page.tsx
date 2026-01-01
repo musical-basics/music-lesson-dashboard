@@ -88,15 +88,20 @@ export default function Dashboard() {
     // 3. Launch Lesson
     const launchLesson = (studentId: string) => {
         const secret = "super_secret_piano_master_key_2025"
-        const roomName = `lesson - ${studentId} `
-        const url = `/ studio ? room = ${roomName}& studentId=${studentId}& name=Teacher & key=${secret}& role=teacher`
+        const roomName = `lesson-${studentId}`
+
+        // CHANGED: Point to root '/' with view=lesson
+        const url = `/?view=lesson&room=${roomName}&studentId=${studentId}&name=Teacher&key=${secret}&role=teacher`
         router.push(url)
     }
 
     // 4. Copy Link
     const copyStudentLink = (studentId: string) => {
-        const roomName = `lesson - ${studentId} `
-        const link = `${window.location.origin}/studio?room=${roomName}&studentId=${studentId}&name=${studentId}&role=student`
+        const roomName = `lesson-${studentId}`
+
+        // CHANGED: Point to root '/' with view=lesson (or green-room as default)
+        const link = `${window.location.origin}/?view=green-room&room=${roomName}&studentId=${studentId}&name=${studentId}&role=student`
+
         navigator.clipboard.writeText(link)
         alert(`✅ Copied link for ${studentId}!\n\nSend this to the student.`)
     }
