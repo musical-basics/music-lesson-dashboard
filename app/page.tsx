@@ -17,11 +17,13 @@ type View = "green-room" | "lesson" | "recital"
 function SidebarContent({
   currentView,
   setCurrentView,
-  onNavigate
+  onNavigate,
+  role
 }: {
   currentView: View,
   setCurrentView: (view: View) => void,
-  onNavigate?: () => void
+  onNavigate?: () => void,
+  role?: string
 }) {
   const handleNav = (view: View) => {
     setCurrentView(view)
@@ -43,14 +45,17 @@ function SidebarContent({
       </div>
 
       <nav className="flex-1 p-4 space-y-2">
-        <Link
-          href="/dashboard"
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-all"
-        >
-          <LayoutDashboard className="w-5 h-5" />
-          <span className="font-medium">Dashboard</span>
-        </Link>
-        <div className="mx-4 my-2 border-t border-border/50" />
+        {/* Only show Dashboard if NOT a student */}
+        {role !== 'student' && (
+          <Link
+            href="/dashboard"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-all"
+          >
+            <LayoutDashboard className="w-5 h-5" />
+            <span className="font-medium">Dashboard</span>
+          </Link>
+        )}
+        {role !== 'student' && <div className="mx-4 my-2 border-t border-border/50" />}
 
         <button
           onClick={() => handleNav("green-room")}
@@ -190,6 +195,7 @@ function MusicStudioContent() {
               currentView={currentView}
               setCurrentView={setCurrentView}
               onNavigate={() => setIsMobileMenuOpen(false)}
+              role={roleParam}
             />
           </SheetContent>
         </Sheet>
@@ -197,7 +203,7 @@ function MusicStudioContent() {
 
       {/* Desktop Sidebar Navigation */}
       <aside className="hidden md:flex w-64 border-r border-border bg-sidebar flex-col">
-        <SidebarContent currentView={currentView} setCurrentView={setCurrentView} />
+        <SidebarContent currentView={currentView} setCurrentView={setCurrentView} role={roleParam} />
       </aside>
 
       {/* Main Content */}

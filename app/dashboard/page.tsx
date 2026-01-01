@@ -23,6 +23,17 @@ export default function Dashboard() {
     const [isAdding, setIsAdding] = useState(false)
     const [isDialogOpen, setIsDialogOpen] = useState(false)
 
+    // Authentication State
+    const [isAuthenticated, setIsAuthenticated] = useState(false)
+    const [password, setPassword] = useState("")
+
+    // Check for saved teacher session on mount
+    useEffect(() => {
+        if (localStorage.getItem("teacher_session") === "valid") {
+            setIsAuthenticated(true)
+        }
+    }, [])
+
     // Form State
     const [formData, setFormData] = useState({
         name: "",
@@ -108,6 +119,51 @@ export default function Dashboard() {
 
         navigator.clipboard.writeText(link)
         alert(`✅ Copied link for ${studentId}!\n\nSend this to the student.`)
+    }
+
+    // AUTH GATE: Show login screen if not authenticated
+    if (!isAuthenticated) {
+        return (
+            <div className="flex h-screen items-center justify-center bg-zinc-950 text-white">
+                <div className="space-y-4 text-center max-w-sm">
+                    <div className="w-16 h-16 rounded-2xl bg-indigo-500/20 flex items-center justify-center mx-auto mb-6">
+                        <Music className="w-8 h-8 text-indigo-400" />
+                    </div>
+                    <h1 className="text-2xl font-bold">Teacher Access Only</h1>
+                    <p className="text-zinc-400 text-sm">Enter your admin key to access the dashboard.</p>
+                    <input
+                        type="password"
+                        placeholder="Enter Admin Key"
+                        value={password}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        onChange={(e) => setPassword(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                if (password === "super_secret_piano_master_key_2025") {
+                                    localStorage.setItem("teacher_session", "valid")
+                                    setIsAuthenticated(true)
+                                } else {
+                                    alert("Incorrect key")
+                                }
+                            }
+                        }}
+                    />
+                    <Button
+                        className="w-full bg-indigo-600 hover:bg-indigo-700"
+                        onClick={() => {
+                            if (password === "super_secret_piano_master_key_2025") {
+                                localStorage.setItem("teacher_session", "valid")
+                                setIsAuthenticated(true)
+                            } else {
+                                alert("Incorrect key")
+                            }
+                        }}
+                    >
+                        Enter Dashboard
+                    </Button>
+                </div>
+            </div>
+        )
     }
 
     return (
