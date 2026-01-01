@@ -5,7 +5,6 @@ import { AnnotationRail } from './annotation-rail'
 import { Pencil, Hand, Loader2, Eraser, Trash2, Cloud } from 'lucide-react'
 import { useLessonState } from '@/hooks/use-lesson-state'
 
-// Define the exposed methods for the parent
 export interface HorizontalMusicContainerHandle {
     undo: () => void;
     redo: () => void;
@@ -25,7 +24,6 @@ type BookmarkData = {
     pixelX: number;
 }
 
-// Wrap in forwardRef to expose Undo/Redo methods
 export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandle, HorizontalMusicContainerProps>(
     ({ xmlUrl, songId, studentId, externalTool, externalColor, hideToolbar }, ref) => {
 
@@ -39,32 +37,36 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
 
         const activeTool = externalTool || internalTool
         const activeColor = externalColor || "#ff0000"
+
         const [clearTrigger, setClearTrigger] = useState(0)
         const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
 
-        // Data Hook
         const { data, saveData, isLoaded: isStateLoaded } = useLessonState(studentId, songId)
 
-        // Ref for current data (to avoid stale closures)
         const dataRef = useRef(data)
         useEffect(() => { dataRef.current = data }, [data])
 
         // ----------------------------------------------------------------
-        // 1. UNDO / REDO HISTORY SYSTEM
+        // 1. ROBUST HISTORY SYSTEM (Using Refs for synchronous updates)
         // ----------------------------------------------------------------
-        const [history, setHistory] = useState<any[]>([])
-        const [historyIndex, setHistoryIndex] = useState(-1)
+        const historyRef = useRef<any[]>([])
+        const historyIndexRef = useRef<number>(-1)
 
-        // Expose Undo/Redo to Parent via Ref
+        // Initialize History
+        useEffect(() => {
+            if (isStateLoaded && historyRef.current.length === 0 && data) {
+                historyRef.current = [data]
+                historyIndexRef.current = 0
+            }
+        }, [isStateLoaded, data])
+
         useImperativeHandle(ref, () => ({
             undo: () => {
-                if (historyIndex > 0) {
-                    const newIndex = historyIndex - 1
-                    const previousState = history[newIndex]
-                    setHistoryIndex(newIndex)
+                if (historyIndexRef.current > 0) {
+                    historyIndexRef.current -= 1
+                    const previousState = historyRef.current[historyIndexRef.current]
+                    console.log("↺ Undo to step", historyIndexRef.current)
 
-                    console.log("↺ Undoing to step", newIndex)
-                    // RESTORE: Merge old drawings with CURRENT scroll position
                     saveData({
                         ...previousState,
                         scrollX: dataRef.current?.scrollX || 0
@@ -72,13 +74,11 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
                 }
             },
             redo: () => {
-                if (historyIndex < history.length - 1) {
-                    const newIndex = historyIndex + 1
-                    const nextState = history[newIndex]
-                    setHistoryIndex(newIndex)
+                if (historyIndexRef.current < historyRef.current.length - 1) {
+                    historyIndexRef.current += 1
+                    const nextState = historyRef.current[historyIndexRef.current]
+                    console.log("↻ Redo to step", historyIndexRef.current)
 
-                    console.log("↻ Redoing to step", newIndex)
-                    // RESTORE: Merge future drawings with CURRENT scroll position
                     saveData({
                         ...nextState,
                         scrollX: dataRef.current?.scrollX || 0
@@ -87,49 +87,34 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
             }
         }))
 
-        // Helper: Check if two history states are effectively the same (ignoring scroll)
-        const areStatesEqual = (stateA: any, stateB: any) => {
-            if (!stateA || !stateB) return false
-            // Compare stringified versions excluding scrollX
-            const copyA = { ...stateA }; delete copyA.scrollX
-            const copyB = { ...stateB }; delete copyB.scrollX
-            return JSON.stringify(copyA) === JSON.stringify(copyB)
-        }
-
         // ----------------------------------------------------------------
-        // 2. SAVE HANDLERS
+        // 2. SAVE HANDLERS (Synchronous ref-based history)
         // ----------------------------------------------------------------
         const handleAnnotationSave = (newData: any) => {
-            // 1. Save to DB (Preserve Scroll)
+            // 1. Save to DB (UI Update)
             const payload = {
                 ...newData,
                 scrollX: dataRef.current?.scrollX || 0
             }
             saveData(payload)
 
-            // 2. Add to History (If this is a NEW drawing action)
-            const currentHistoryTip = history[historyIndex]
+            // 2. Add to History (Ref-based, instant)
+            const currentIndex = historyIndexRef.current
+            const currentTip = historyRef.current[currentIndex]
 
-            if (!areStatesEqual(newData, currentHistoryTip)) {
-                const newHistory = history.slice(0, historyIndex + 1)
+            // Simple check to ensure we actually added something new
+            if (JSON.stringify(newData) !== JSON.stringify(currentTip)) {
+                // Slice history if we undid and are now branching off
+                const newHistory = historyRef.current.slice(0, currentIndex + 1)
                 newHistory.push(newData)
 
-                // Limit to 20 steps
+                // Limit memory to 20 steps
                 if (newHistory.length > 20) newHistory.shift()
 
-                setHistory(newHistory)
-                setHistoryIndex(newHistory.length - 1)
+                historyRef.current = newHistory
+                historyIndexRef.current = newHistory.length - 1
             }
         }
-
-        // Initialize History on Load
-        useEffect(() => {
-            if (isStateLoaded && history.length === 0 && data) {
-                // Initial snapshot
-                setHistory([data])
-                setHistoryIndex(0)
-            }
-        }, [isStateLoaded, data, history.length])
 
         // ----------------------------------------------------------------
         // 3. SCROLL SYNC LOGIC
@@ -149,13 +134,8 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
             if (hideToolbar || !scrollContainerRef.current) return
             const x = scrollContainerRef.current.scrollLeft
             if (scrollTimeout.current) clearTimeout(scrollTimeout.current)
-
             scrollTimeout.current = setTimeout(() => {
-                // When scrolling, we DO NOT update history stack (it's not an undoable action)
-                saveData({
-                    ...(dataRef.current || {}),
-                    scrollX: x
-                })
+                saveData({ ...(dataRef.current || {}), scrollX: x })
             }, 500)
         }
 
