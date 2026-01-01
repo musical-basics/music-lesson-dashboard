@@ -48,6 +48,14 @@ export function HorizontalMusicContainer({
     // HOOK: Managed Lesson State
     const { data, saveData, isLoaded: isStateLoaded } = useLessonState(studentId, songId)
 
+    // Ref to track latest data (fixes stale closure bug in scroll handler)
+    const dataRef = useRef(data)
+
+    // Keep dataRef in sync with data
+    useEffect(() => {
+        dataRef.current = data
+    }, [data])
+
     // Scroll timeout ref for debouncing
     const scrollTimeout = useRef<NodeJS.Timeout | null>(null)
 
@@ -80,9 +88,10 @@ export function HorizontalMusicContainer({
         if (scrollTimeout.current) clearTimeout(scrollTimeout.current)
 
         scrollTimeout.current = setTimeout(() => {
-            // Merge with existing data so we don't lose annotations
+            console.log("Saving scroll position:", x)
+            // Use dataRef.current to get fresh data (fixes stale closure)
             saveData({
-                ...data,
+                ...(dataRef.current || {}),
                 scrollX: x
             })
         }, 500) // 500ms delay after scrolling stops
@@ -165,7 +174,7 @@ export function HorizontalMusicContainer({
             // If Teacher, broadcast immediately
             if (!hideToolbar) {
                 saveData({
-                    ...data,
+                    ...(dataRef.current || {}),
                     scrollX: x - 50
                 })
             }
