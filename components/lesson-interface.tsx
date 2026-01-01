@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -61,6 +62,11 @@ interface LessonInterfaceProps {
 }
 
 export function LessonInterface({ studentId }: LessonInterfaceProps) {
+  // Get the Role from URL
+  const searchParams = useSearchParams()
+  const role = searchParams.get('role')
+  const isStudent = role === 'student'
+
   const [isMuted, setIsMuted] = useState(false)
   const [isVideoOff, setIsVideoOff] = useState(false)
   const [isMusicMode, setIsMusicMode] = useState(true)
@@ -443,7 +449,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                         <span className="font-medium text-foreground text-sm lg:text-base">Sheet Music</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <AnnotationToolbar />
+                        {/* Hide annotation toolbar for students */}
+                        {!isStudent && <AnnotationToolbar />}
                         <div className="hidden sm:flex items-center gap-1 lg:gap-2 ml-2">
                           <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground text-xs lg:text-sm px-2">-</Button>
                           <span className="text-xs lg:text-sm text-muted-foreground">100%</span>
@@ -456,9 +463,10 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       <HorizontalMusicContainer
                         xmlUrl="/xmls/La Campanella Remix v8.musicxml"
                         songId="la-campanella"
-                        studentId={studentId || "student-1"} // This should eventually come from context
+                        studentId={studentId || "student-1"}
                         hideToolbar={true}
-                        externalTool={activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll')}
+                        // Force scroll mode for students (read-only), otherwise use chosen tool
+                        externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll'))}
                         externalColor={penColor}
                       />
                     </div>
@@ -517,7 +525,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               <div className="flex-grow bg-background z-10 flex flex-col h-full">
                 <div className="px-3 py-2 border-b border-border bg-secondary/50 flex items-center justify-between">
                   <span className="font-medium text-sm">Sheet Music</span>
-                  <AnnotationToolbar />
+                  {/* Hide annotation toolbar for students */}
+                  {!isStudent && <AnnotationToolbar />}
                 </div>
                 <div
                   ref={containerRef}
