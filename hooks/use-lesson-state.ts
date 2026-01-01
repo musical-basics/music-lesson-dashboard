@@ -30,6 +30,7 @@ export function useLessonState(studentId: string, songId: string) {
                 const res = await fetch(`/api/annotations?studentId=${studentId}&songId=${songId}`)
                 if (res.ok) {
                     const data = await res.json()
+                    console.log("📂 Loaded initial data:", Object.keys(data || {}).length, "keys")
                     setState(data)
                 }
             } catch (e) {
@@ -40,32 +41,38 @@ export function useLessonState(studentId: string, songId: string) {
         }
         fetchState()
 
-        // B. Realtime Subscription (The Magic ✨)
+        // B. Realtime Subscription - Listen for ALL changes (UPDATE, INSERT, DELETE)
         const channel = supabase
-            .channel(`lesson-${studentId}`)
+            .channel(`lesson-${studentId}-${songId}`)
             .on(
                 'postgres_changes',
                 {
-                    event: 'UPDATE',
+                    event: '*', // Listen to ALL events (INSERT, UPDATE, DELETE)
                     schema: 'public',
                     table: 'classroom_annotations',
-                    filter: `student_id=eq.${studentId}`, // Only listen to this student's room
+                    filter: `student_id=eq.${studentId}`,
                 },
                 (payload) => {
+                    console.log("📡 Realtime event received:", payload.eventType, payload)
+
                     // Check if this update is for the current song
-                    if (payload.new.song_id === songId) {
+                    if (payload.new && (payload.new as any).song_id === songId) {
                         // If WE triggered this save, ignore the echo
                         if (isLocalUpdate.current) {
+                            console.log("🔇 Ignoring our own update (echo prevention)")
                             isLocalUpdate.current = false
                             return
                         }
 
-                        console.log("⚡ Received realtime update from teacher")
-                        setState(payload.new.data)
+                        const newData = (payload.new as any).data
+                        console.log("⚡ Received realtime update from teacher:", Object.keys(newData || {}).length, "keys")
+                        setState(newData)
                     }
                 }
             )
-            .subscribe()
+            .subscribe((status: any) => {
+                console.log("📶 Subscription status:", status)
+            })
 
         // Cleanup
         return () => {
@@ -75,6 +82,8 @@ export function useLessonState(studentId: string, songId: string) {
 
     // 2. SAVE to Cloud (Debounced)
     const saveData = useCallback((newData: AnnotationState) => {
+        console.log("💾 Saving data:", Object.keys(newData || {}).length, "keys")
+
         // Optimistic Update
         setState(newData)
         setIsSaving(true)
@@ -86,7 +95,7 @@ export function useLessonState(studentId: string, songId: string) {
 
         saveTimeout.current = setTimeout(async () => {
             try {
-                await fetch('/api/annotations', {
+                const res = await fetch('/api/annotations', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -95,6 +104,11 @@ export function useLessonState(studentId: string, songId: string) {
                         data: newData
                     })
                 })
+                if (!res.ok) {
+                    console.error("❌ Save failed:", await res.text())
+                } else {
+                    console.log("✅ Save successful")
+                }
             } catch (e) {
                 console.error("Failed to save:", e)
             } finally {
