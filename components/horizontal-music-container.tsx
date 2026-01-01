@@ -48,6 +48,46 @@ export function HorizontalMusicContainer({
     // HOOK: Managed Lesson State
     const { data, saveData, isLoaded: isStateLoaded } = useLessonState(studentId, songId)
 
+    // Scroll timeout ref for debouncing
+    const scrollTimeout = useRef<NodeJS.Timeout | null>(null)
+
+    // SCROLL SYNC (RECEIVER) - Students follow teacher's scroll position
+    useEffect(() => {
+        // Only follow if we are in "Student Mode" (hideToolbar is true)
+        if (hideToolbar && data?.scrollX !== undefined && scrollContainerRef.current) {
+            const currentScroll = scrollContainerRef.current.scrollLeft
+            const targetScroll = data.scrollX
+
+            // Only scroll if the difference is significant (prevents jitter/fighting)
+            if (Math.abs(currentScroll - targetScroll) > 50) {
+                console.log("⚡ Syncing scroll position:", targetScroll)
+                scrollContainerRef.current.scrollTo({
+                    left: targetScroll,
+                    behavior: 'smooth'
+                })
+            }
+        }
+    }, [data?.scrollX, hideToolbar])
+
+    // SCROLL BROADCAST (SENDER) - Teacher broadcasts scroll position
+    const handleContainerScroll = () => {
+        // Students do NOT broadcast their scroll
+        if (hideToolbar || !scrollContainerRef.current) return
+
+        const x = scrollContainerRef.current.scrollLeft
+
+        // Debounce the scroll save to avoid flooding the DB
+        if (scrollTimeout.current) clearTimeout(scrollTimeout.current)
+
+        scrollTimeout.current = setTimeout(() => {
+            // Merge with existing data so we don't lose annotations
+            saveData({
+                ...data,
+                scrollX: x
+            })
+        }, 500) // 500ms delay after scrolling stops
+    }
+
     useEffect(() => {
         if (!containerRef.current) return
         let isCancelled = false
@@ -119,7 +159,17 @@ export function HorizontalMusicContainer({
     }
 
     const jumpTo = (x: number) => {
-        scrollContainerRef.current?.scrollTo({ left: x - 50, behavior: 'smooth' })
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTo({ left: x - 50, behavior: 'smooth' })
+
+            // If Teacher, broadcast immediately
+            if (!hideToolbar) {
+                saveData({
+                    ...data,
+                    scrollX: x - 50
+                })
+            }
+        }
     }
 
     const getBtnClass = (toolName: string) =>
@@ -166,6 +216,7 @@ export function HorizontalMusicContainer({
             <div
                 ref={scrollContainerRef}
                 onWheel={handleWheel}
+                onScroll={handleContainerScroll}
                 className={`flex-1 overflow-x-auto overflow-y-auto relative bg-zinc-900 ${activeTool !== 'scroll' ? 'touch-none' : ''}`}
             >
                 <div className="bg-white" style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
