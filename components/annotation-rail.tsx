@@ -32,7 +32,7 @@ export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, d
         >
             {Array.from({ length: chunkCount }).map((_, i) => (
                 <AnnotationChunk
-                    key={i}
+                    key={`${i}-${JSON.stringify(data[i] || {}).slice(0, 50)}`} // Force re-mount when data changes
                     index={i}
                     width={i === chunkCount - 1 ? totalWidth % CHUNK_SIZE : CHUNK_SIZE}
                     height={height}
