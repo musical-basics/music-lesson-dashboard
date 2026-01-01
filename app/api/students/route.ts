@@ -12,7 +12,7 @@ export async function GET() {
     // This effectively builds your "Student List" automatically based on usage
     // We select student_id and updated_at to show when they were last active
     const { data, error } = await supabase
-        .from('annotations')
+        .from('classroom_annotations')
         .select('student_id, updated_at')
         .order('updated_at', { ascending: false })
 

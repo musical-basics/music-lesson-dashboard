@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { data, error } = await supabase
-        .from('annotations')
+        .from('classroom_annotations')
         .select('data')
         .eq('student_id', studentId)
         .eq('song_id', songId)
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     // Upsert: Update if exists, Insert if new
     const { error } = await supabase
-        .from('annotations')
+        .from('classroom_annotations')
         .upsert(
             {
                 student_id: studentId,
