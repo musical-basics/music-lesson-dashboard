@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { createClient } from "@supabase/supabase-js"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,9 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState("")
     const [success, setSuccess] = useState(false)
+    const [xmlFileName, setXmlFileName] = useState<string | null>(null)
+
+    const xmlInputRef = useRef<HTMLInputElement>(null)
 
     const { register, handleSubmit, reset, formState: { errors } } = useForm()
 
@@ -87,6 +90,7 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
             console.log("✅ Piece added successfully!")
             setSuccess(true)
             reset()
+            setXmlFileName(null)
 
             setTimeout(() => {
                 setOpen(false)
@@ -179,15 +183,29 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
 
                     <div className="space-y-2">
                         <Label className="text-zinc-300">Sheet Music (.musicxml or .xml) *</Label>
-                        <div className="border-2 border-dashed border-zinc-700 rounded-lg p-6 flex flex-col items-center justify-center text-center hover:bg-zinc-800/50 transition cursor-pointer relative">
-                            <Input
-                                type="file"
-                                accept=".xml,.musicxml"
-                                className="absolute inset-0 opacity-0 cursor-pointer"
-                                {...register("xml_file", { required: true })}
-                            />
+                        <input
+                            type="file"
+                            accept=".xml,.musicxml"
+                            className="hidden"
+                            {...register("xml_file", { required: true })}
+                            ref={(e) => {
+                                register("xml_file", { required: true }).ref(e)
+                                xmlInputRef.current = e
+                            }}
+                            onChange={(e) => {
+                                register("xml_file", { required: true }).onChange(e)
+                                const file = e.target.files?.[0]
+                                setXmlFileName(file ? file.name : null)
+                            }}
+                        />
+                        <div
+                            onClick={() => xmlInputRef.current?.click()}
+                            className="border-2 border-dashed border-zinc-700 rounded-lg p-6 flex flex-col items-center justify-center text-center hover:bg-zinc-800/50 transition cursor-pointer"
+                        >
                             <FileMusic className="w-8 h-8 text-indigo-400 mb-2" />
-                            <span className="text-sm text-zinc-400">Click to upload XML</span>
+                            <span className="text-sm text-zinc-400">
+                                {xmlFileName ? xmlFileName : "Click to upload XML"}
+                            </span>
                         </div>
                         {errors.xml_file && <span className="text-xs text-red-500">File required</span>}
                     </div>
