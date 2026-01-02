@@ -34,19 +34,19 @@ export function DashboardSidebar({ className, currentView, onNavigate, role = 't
         {
             label: "Green Room",
             icon: Video,
-            href: "/?view=green-room",
+            href: `/?view=green-room&role=${role}`,
             view: "green-room"
         },
         {
             label: "Lesson Interface",
             icon: Music,
-            href: "/?view=lesson",
+            href: `/?view=lesson&role=${role}`,
             view: "lesson"
         },
         {
             label: "Recital Stage",
             icon: Users,
-            href: "/?view=recital",
+            href: `/?view=recital&role=${role}`,
             view: "recital"
         }
     ]
