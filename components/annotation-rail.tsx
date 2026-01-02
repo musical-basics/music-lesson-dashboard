@@ -1,16 +1,17 @@
 "use client"
-import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
+import React, { useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import { Canvas, PencilBrush, IText } from 'fabric'
 import { AnnotationState } from '@/hooks/use-lesson-state'
 
 export interface AnnotationRailHandle {
     addText: (globalX: number, y: number, style: { color: string, fontSize: number }) => void
+    updateActiveObject: (style: any) => void
 }
 
 interface AnnotationRailProps {
     totalWidth: number
     height: number
-    activeTool: 'scroll' | 'pen' | 'eraser' | 'text'
+    activeTool: 'scroll' | 'pen' | 'eraser' | 'text' | null
     clearTrigger: number
     data: AnnotationState
     onSave: (newData: AnnotationState) => void
@@ -42,6 +43,10 @@ export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailPro
                 if (targetChunk) {
                     targetChunk.addText(localX, y, style)
                 }
+            },
+            updateActiveObject: (style) => {
+                // Broadcast style update to all chunks (only the one with active obj will react)
+                chunkRefs.current.forEach(chunk => chunk?.updateActiveObject(style))
             }
         }))
 
@@ -81,6 +86,7 @@ AnnotationRail.displayName = "AnnotationRail"
 
 interface AnnotationChunkHandle {
     addText: (x: number, y: number, style: { color: string, fontSize: number }) => void
+    updateActiveObject: (style: any) => void
 }
 
 const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
@@ -101,6 +107,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                     fill: style.color,
                     fontSize: style.fontSize,
                     selectable: true,
+                    editable: true,
                     originX: 'center',
                     originY: 'center'
                 })
@@ -111,6 +118,19 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 text.selectAll()
                 canvas.requestRenderAll()
                 onSave(canvas.toJSON())
+            },
+            updateActiveObject: (style) => {
+                const canvas = fabricRef.current
+                if (!canvas) return
+
+                const activeObj = canvas.getActiveObject() as IText
+                if (activeObj) {
+                    // Special handling for toggling props if necessary
+                    // For now simple merger
+                    activeObj.set(style)
+                    canvas.requestRenderAll()
+                    onSave(canvas.toJSON())
+                }
             }
         }))
 
@@ -123,7 +143,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 width,
                 height,
                 backgroundColor: 'transparent',
-                selection: false,
+                selection: false, // Managed by Tool Logic
                 renderOnAddRemove: true,
             })
 
@@ -133,21 +153,16 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
             canvas.freeDrawingBrush = brush
 
             // --- EVENT LISTENERS ---
-            canvas.on('path:created', () => {
-                if (isMounted.current) onSave(canvas.toJSON())
-            })
-
-            canvas.on('object:modified', () => {
-                if (isMounted.current) onSave(canvas.toJSON())
-            })
-
+            const saveHandler = () => { if (isMounted.current) onSave(canvas.toJSON()) }
+            canvas.on('path:created', saveHandler)
+            canvas.on('object:modified', saveHandler)
             canvas.on('text:editing:exited', (opt) => {
                 const target = opt.target as IText
                 if (target && target.text?.trim() === '') {
                     canvas.remove(target)
                     canvas.requestRenderAll()
                 }
-                if (isMounted.current) onSave(canvas.toJSON())
+                saveHandler()
             })
 
             fabricRef.current = canvas
@@ -167,7 +182,15 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
             if (initialData && Object.keys(initialData).length > 0) {
                 try {
                     canvas.loadFromJSON(initialData, () => {
-                        if (isMounted.current) canvas.requestRenderAll()
+                        if (isMounted.current) {
+                            // Sync selection state after load
+                            const isInteracting = !activeTool || activeTool === 'scroll' || activeTool === 'text'
+                            canvas.forEachObject(o => {
+                                o.selectable = isInteracting
+                                o.evented = isInteracting || activeTool === 'eraser'
+                            })
+                            canvas.requestRenderAll()
+                        }
                     })
                 } catch (e) { console.error("Error loading chunk", e) }
             } else {
@@ -184,18 +207,20 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
 
             if (activeTool === 'pen') {
                 canvas.isDrawingMode = true
+                canvas.selection = false
                 canvas.defaultCursor = 'crosshair'
                 canvas.hoverCursor = 'crosshair'
-                canvas.forEachObject(o => { o.selectable = false })
+                canvas.forEachObject(o => { o.selectable = false; o.evented = false })
                 canvas.off('mouse:down')
                 if (canvas.freeDrawingBrush) {
                     canvas.freeDrawingBrush.color = color || "#ff0000"
                 }
             } else if (activeTool === 'eraser') {
                 canvas.isDrawingMode = false
+                canvas.selection = false
                 canvas.defaultCursor = 'cell'
                 canvas.hoverCursor = 'cell'
-                canvas.forEachObject(o => { o.selectable = false })
+                canvas.forEachObject(o => { o.selectable = false; o.evented = true })
 
                 canvas.off('mouse:down');
                 canvas.on('mouse:down', (opt) => {
@@ -206,12 +231,11 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                     }
                 })
             } else if (activeTool === 'text') {
-                // legacy click-to-place (can keep or remove, user wants spawn-in-center)
-                // keeping it for now but user will likely use the new button
                 canvas.isDrawingMode = false
+                canvas.selection = true
                 canvas.defaultCursor = 'text'
                 canvas.hoverCursor = 'text'
-                canvas.forEachObject(o => { o.selectable = true })
+                canvas.forEachObject(o => { o.selectable = true; o.evented = true })
 
                 canvas.off('mouse:down')
                 canvas.on('mouse:down', (opt) => {
@@ -224,6 +248,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                         fill: color,
                         fontSize: textSize,
                         selectable: true,
+                        editable: true,
                         originX: 'center',
                         originY: 'center'
                     })
@@ -234,10 +259,12 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                     canvas.requestRenderAll()
                 })
             } else {
+                // SELECT / SCROLL
                 canvas.isDrawingMode = false
+                canvas.selection = true
                 canvas.defaultCursor = 'default'
                 canvas.hoverCursor = 'move'
-                canvas.forEachObject(o => { o.selectable = true })
+                canvas.forEachObject(o => { o.selectable = true; o.evented = true })
                 canvas.off('mouse:down')
             }
             canvas.requestRenderAll()

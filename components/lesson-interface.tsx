@@ -28,7 +28,10 @@ import {
   Trash2,
   Save,
   Settings2,
-  Plus
+  Plus,
+  Bold,
+  Italic,
+  Underline
 } from "lucide-react"
 import { VideoConference, useTracks, ParticipantTile } from "@livekit/components-react"
 import { Track } from "livekit-client"
@@ -240,6 +243,12 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
       setActiveTool(null)
     } else {
       setActiveTool('text')
+    }
+  }
+
+  const handleTextStyleChange = (changes: any) => {
+    if (musicContainerRef.current) {
+      musicContainerRef.current.updateActiveObject(changes)
     }
   }
 
@@ -499,10 +508,54 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 min="12"
                 max="72"
                 value={textSize}
-                onChange={(e) => setTextSize(Number(e.target.value))}
+                onChange={(e) => {
+                  const size = Number(e.target.value)
+                  setTextSize(size)
+                  handleTextStyleChange({ fontSize: size })
+                }}
                 className="flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
               />
               <span className="text-lg">A</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-zinc-400">Style</Label>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+                onClick={() => handleTextStyleChange({ fontWeight: 'bold' })}
+              >
+                <Bold className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+                onClick={() => handleTextStyleChange({ fontStyle: 'italic' })}
+              >
+                <Italic className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+                onClick={() => handleTextStyleChange({ underline: true })}
+              >
+                <Underline className="w-3.5 h-3.5" />
+              </Button>
+              <select
+                className="h-8 text-xs bg-zinc-800 border border-zinc-700 rounded px-2 flex-1 text-zinc-300"
+                onChange={(e) => handleTextStyleChange({ fontFamily: e.target.value })}
+              >
+                <option value="Arial">Arial</option>
+                <option value="Times New Roman">Times</option>
+                <option value="Courier New">Courier</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Inter">Inter</option>
+              </select>
             </div>
           </div>
 
@@ -552,7 +605,10 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
             className={`w-5 h-5 rounded-full border-2 transition-transform ${penColor === color ? "border-foreground scale-110" : "border-transparent"
               }`}
             style={{ backgroundColor: color }}
-            onClick={() => setPenColor(color)}
+            onClick={() => {
+              setPenColor(color)
+              handleTextStyleChange({ fill: color })
+            }}
           />
         ))}
       </div>

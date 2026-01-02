@@ -9,6 +9,7 @@ export interface HorizontalMusicContainerHandle {
     undo: () => void;
     redo: () => void;
     addText: (style: { color: string, fontSize: number }) => void;
+    updateActiveObject: (style: any) => void;
 }
 
 interface HorizontalMusicContainerProps {
@@ -120,6 +121,11 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
                 const centerY = dimensions.height > 0 ? dimensions.height / 2 : 150
 
                 railRef.current.addText(centerX, centerY, style)
+            },
+            updateActiveObject: (style: any) => {
+                if (railRef.current) {
+                    railRef.current.updateActiveObject(style)
+                }
             }
         }))
 
