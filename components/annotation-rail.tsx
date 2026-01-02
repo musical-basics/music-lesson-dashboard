@@ -12,7 +12,7 @@ export interface AnnotationRailHandle {
 interface AnnotationRailProps {
     totalWidth: number
     height: number
-    activeTool: 'scroll' | 'pen' | 'eraser' | 'text' | null
+    activeTool: 'scroll' | 'select' | 'pen' | 'eraser' | 'text' | null
     clearTrigger: number
     data: AnnotationState
     onSave: (newData: AnnotationState) => void

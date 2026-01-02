@@ -31,7 +31,8 @@ import {
   Plus,
   Bold,
   Italic,
-  Underline
+  Underline,
+  MousePointer2
 } from "lucide-react"
 import { VideoConference, useTracks, ParticipantTile } from "@livekit/components-react"
 import { Track } from "livekit-client"
@@ -91,7 +92,7 @@ function VerticalVideoStack() {
 }
 
 type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
-type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | null
+type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | "select" | null
 
 interface Stroke {
   points: { x: number; y: number }[]
@@ -227,7 +228,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
           color: preset.color,
           fontSize: preset.fontSize
         })
-        setActiveTool(null)
+        setActiveTool('select')
       } else {
         setActiveTool('text')
       }
@@ -240,7 +241,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
         color: penColor,
         fontSize: textSize
       })
-      setActiveTool(null)
+      setActiveTool('select')
     } else {
       setActiveTool('text')
     }
@@ -469,6 +470,15 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const AnnotationToolbar = () => (
     <div className="flex items-center gap-1 lg:gap-2 px-2 py-1.5 bg-card/90 backdrop-blur-sm rounded-lg border border-border shadow-lg">
       {/* Tool buttons */}
+      <Button
+        variant={activeTool === "select" ? "default" : "ghost"}
+        size="sm"
+        className="w-8 h-8 p-0"
+        onClick={() => setActiveTool(activeTool === "select" ? null : "select")}
+        title="Select"
+      >
+        <MousePointer2 className="w-4 h-4" />
+      </Button>
       <Button
         variant={activeTool === "pen" ? "default" : "ghost"}
         size="sm"
@@ -753,7 +763,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                           songId={activePiece.id}
                           studentId={studentId || "student-1"}
                           hideToolbar={isStudent}
-                          externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : activeTool || 'scroll'))}
+                          externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : (activeTool === 'select' ? 'select' : activeTool || 'scroll')))}
                           externalColor={penColor}
                           externalTextSize={textSize}
                         />

@@ -17,7 +17,8 @@ interface HorizontalMusicContainerProps {
     xmlUrl: string
     songId: string
     studentId: string
-    externalTool?: 'scroll' | 'pen' | 'eraser' | 'text'
+    externalTool?: 'scroll'
+    activeTool: 'scroll' | 'select' | 'pen' | 'eraser' | 'text' | null
     externalColor?: string
     externalTextSize?: number
     hideToolbar?: boolean
@@ -38,7 +39,7 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
 
         const [isLoaded, setIsLoaded] = useState(false)
         const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
-        const [internalTool, setInternalTool] = useState<'scroll' | 'pen' | 'eraser'>('scroll')
+        const [internalTool, setInternalTool] = useState<'scroll' | 'select' | 'pen' | 'eraser'>('scroll')
 
         const activeTool = externalTool || internalTool
         const activeColor = externalColor || "#ff0000"
