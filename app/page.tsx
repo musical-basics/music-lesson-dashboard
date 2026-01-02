@@ -6,7 +6,8 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { GreenRoom } from "@/components/green-room"
 import { LessonInterface } from "@/components/lesson-interface"
 import { RecitalStage } from "@/components/recital-stage"
-import { Music, Users, Video, LayoutDashboard, Menu } from "lucide-react"
+import { Music, Menu } from "lucide-react"
+import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react"
 import "@livekit/components-styles"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -14,89 +15,7 @@ import { Button } from "@/components/ui/button"
 
 type View = "green-room" | "lesson" | "recital"
 
-function SidebarContent({
-  currentView,
-  setCurrentView,
-  onNavigate,
-  role
-}: {
-  currentView: View,
-  setCurrentView: (view: View) => void,
-  onNavigate?: () => void,
-  role?: string
-}) {
-  const handleNav = (view: View) => {
-    setCurrentView(view)
-    onNavigate?.()
-  }
 
-  return (
-    <div className="flex flex-col h-full bg-sidebar">
-      <div className="p-6 border-b border-border">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
-            <Music className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="font-semibold text-foreground">Music Studio</h1>
-            <p className="text-xs text-muted-foreground">Pro Lessons</p>
-          </div>
-        </div>
-      </div>
-
-      <nav className="flex-1 p-4 space-y-2">
-        {/* Only show Dashboard if NOT a student */}
-        {role !== 'student' && (
-          <Link
-            href="/dashboard"
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-all"
-          >
-            <LayoutDashboard className="w-5 h-5" />
-            <span className="font-medium">Dashboard</span>
-          </Link>
-        )}
-        {role !== 'student' && <div className="mx-4 my-2 border-t border-border/50" />}
-
-        <button
-          onClick={() => handleNav("green-room")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${currentView === "green-room"
-            ? "bg-primary/20 text-primary border border-primary/30"
-            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-            }`}
-        >
-          <Video className="w-5 h-5" />
-          <span className="font-medium">Green Room</span>
-        </button>
-
-        <button
-          onClick={() => handleNav("lesson")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${currentView === "lesson"
-            ? "bg-primary/20 text-primary border border-primary/30"
-            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-            }`}
-        >
-          <Music className="w-5 h-5" />
-          <span className="font-medium">Lesson Interface</span>
-        </button>
-
-        <button
-          onClick={() => handleNav("recital")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${currentView === "recital"
-            ? "bg-primary/20 text-primary border border-primary/30"
-            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-            }`}
-        >
-          <Users className="w-5 h-5" />
-          <span className="font-medium">Recital Stage</span>
-        </button>
-      </nav>
-
-      <div className="p-4 border-t border-border">
-        <div className="text-xs text-muted-foreground text-center">Preview Mode • Switch views above</div>
-      </div>
-    </div>
-  )
-}
 
 function MusicStudioContent() {
   const searchParams = useSearchParams()
@@ -191,10 +110,13 @@ function MusicStudioContent() {
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="p-0 w-80">
-            <SidebarContent
+            <DashboardSidebar
+              className="flex w-full h-full border-r-0"
               currentView={currentView}
-              setCurrentView={setCurrentView}
-              onNavigate={() => setIsMobileMenuOpen(false)}
+              onNavigate={(view) => {
+                setCurrentView(view as View)
+                setIsMobileMenuOpen(false)
+              }}
               role={roleParam}
             />
           </SheetContent>
@@ -202,9 +124,11 @@ function MusicStudioContent() {
       </div>
 
       {/* Desktop Sidebar Navigation */}
-      <aside className="hidden md:flex w-64 border-r border-border bg-sidebar flex-col">
-        <SidebarContent currentView={currentView} setCurrentView={setCurrentView} role={roleParam} />
-      </aside>
+      <DashboardSidebar
+        currentView={currentView}
+        onNavigate={(view) => setCurrentView(view as View)}
+        role={roleParam}
+      />
 
       {/* Main Content */}
       <main className="flex-1 overflow-hidden h-[calc(100vh-65px)] md:h-screen">
