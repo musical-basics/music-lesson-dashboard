@@ -49,7 +49,7 @@ export function PieceModal({ userId, piece, trigger, onPieceSaved }: PieceModalP
         setSuccess(false)
 
         try {
-            const xmlFile = data.xml_file[0]
+            const xmlFile = data.xml_file?.[0]
             const mp3File = data.mp3_file?.[0]
 
             if (!piece && !xmlFile) throw new Error("Sheet Music (XML) is required")
