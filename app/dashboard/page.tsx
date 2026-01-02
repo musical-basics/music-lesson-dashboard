@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, Video, Copy, Plus, RefreshCw, LayoutDashboard, Music, UserPlus } from 'lucide-react'
+import { Users, Video, Copy, Plus, RefreshCw, LayoutDashboard, Music, UserPlus, Library } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -183,6 +183,9 @@ export default function Dashboard() {
                 <nav className="flex-1 p-4 space-y-1">
                     <Link href="/dashboard" className="flex items-center gap-3 px-3 py-2 rounded-md bg-indigo-500/10 text-indigo-400 font-medium transition-colors">
                         <LayoutDashboard className="w-4 h-4" /> Dashboard
+                    </Link>
+                    <Link href="/studio" className="flex items-center gap-3 px-3 py-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors">
+                        <Library className="w-4 h-4" /> Repertoire Library
                     </Link>
                     <Link href="/?view=green-room" className="flex items-center gap-3 px-3 py-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors">
                         <Video className="w-4 h-4" /> Green Room
