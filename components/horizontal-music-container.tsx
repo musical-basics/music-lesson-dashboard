@@ -10,6 +10,7 @@ export interface HorizontalMusicContainerHandle {
     redo: () => void;
     addText: (style: { color: string, fontSize: number }) => void;
     updateActiveObject: (style: any) => void;
+    deleteActiveObject: () => void;
 }
 
 interface HorizontalMusicContainerProps {
@@ -125,6 +126,11 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
             updateActiveObject: (style: any) => {
                 if (railRef.current) {
                     railRef.current.updateActiveObject(style)
+                }
+            },
+            deleteActiveObject: () => {
+                if (railRef.current) {
+                    railRef.current.deleteActiveObject()
                 }
             }
         }))

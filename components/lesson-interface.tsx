@@ -252,6 +252,12 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
     }
   }
 
+  const handleTextDelete = () => {
+    if (musicContainerRef.current) {
+      musicContainerRef.current.deleteActiveObject()
+    }
+  }
+
   const saveToHistory = (newStrokes: Stroke[], newTexts: TextAnnotation[]) => {
     const newHistory = history.slice(0, historyIndex + 1)
     newHistory.push({ strokes: newStrokes, texts: newTexts })
@@ -545,6 +551,15 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 onClick={() => handleTextStyleChange({ underline: true })}
               >
                 <Underline className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0 border-zinc-700 bg-red-900/20 hover:bg-red-900/40 text-red-400"
+                onClick={handleTextDelete}
+                title="Delete Object"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
               </Button>
               <select
                 className="h-8 text-xs bg-zinc-800 border border-zinc-700 rounded px-2 flex-1 text-zinc-300"

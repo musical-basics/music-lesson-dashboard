@@ -6,6 +6,7 @@ import { AnnotationState } from '@/hooks/use-lesson-state'
 export interface AnnotationRailHandle {
     addText: (globalX: number, y: number, style: { color: string, fontSize: number }) => void
     updateActiveObject: (style: any) => void
+    deleteActiveObject: () => void
 }
 
 interface AnnotationRailProps {
@@ -47,8 +48,27 @@ export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailPro
             updateActiveObject: (style) => {
                 // Broadcast style update to all chunks (only the one with active obj will react)
                 chunkRefs.current.forEach(chunk => chunk?.updateActiveObject(style))
+            },
+            deleteActiveObject: () => {
+                chunkRefs.current.forEach(chunk => chunk?.deleteActiveObject())
             }
         }))
+
+        // Global Keyboard Delete Listener
+        useEffect(() => {
+            const handleKeyDown = (e: KeyboardEvent) => {
+                // Don't delete if we are in an input/textarea
+                const target = e.target as HTMLElement
+                if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    // Tell all chunks to check for active object and delete if not editing
+                    chunkRefs.current.forEach(chunk => chunk?.deleteActiveObject())
+                }
+            }
+            window.addEventListener('keydown', handleKeyDown)
+            return () => window.removeEventListener('keydown', handleKeyDown)
+        }, [])
 
         // ATOMIC CLEAR: Parent saves ONCE for everyone
         useEffect(() => {
@@ -87,6 +107,7 @@ AnnotationRail.displayName = "AnnotationRail"
 interface AnnotationChunkHandle {
     addText: (x: number, y: number, style: { color: string, fontSize: number }) => void
     updateActiveObject: (style: any) => void
+    deleteActiveObject: () => void
 }
 
 const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
@@ -125,9 +146,18 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
 
                 const activeObj = canvas.getActiveObject() as IText
                 if (activeObj) {
-                    // Special handling for toggling props if necessary
-                    // For now simple merger
                     activeObj.set(style)
+                    canvas.requestRenderAll()
+                    onSave(canvas.toJSON())
+                }
+            },
+            deleteActiveObject: () => {
+                const canvas = fabricRef.current
+                if (!canvas) return
+                const activeObj = canvas.getActiveObject()
+                // Only delete if NOT editing (so backspace works inside text)
+                if (activeObj && !(activeObj as any).isEditing) {
+                    canvas.remove(activeObj)
                     canvas.requestRenderAll()
                     onSave(canvas.toJSON())
                 }
@@ -143,7 +173,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 width,
                 height,
                 backgroundColor: 'transparent',
-                selection: false, // Managed by Tool Logic
+                selection: false,
                 renderOnAddRemove: true,
             })
 
@@ -183,7 +213,6 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 try {
                     canvas.loadFromJSON(initialData, () => {
                         if (isMounted.current) {
-                            // Sync selection state after load
                             const isInteracting = !activeTool || activeTool === 'scroll' || activeTool === 'text'
                             canvas.forEachObject(o => {
                                 o.selectable = isInteracting
@@ -259,7 +288,6 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                     canvas.requestRenderAll()
                 })
             } else {
-                // SELECT / SCROLL
                 canvas.isDrawingMode = false
                 canvas.selection = true
                 canvas.defaultCursor = 'default'
