@@ -1,7 +1,11 @@
 "use client"
-import { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
 import { Canvas, PencilBrush, IText } from 'fabric'
 import { AnnotationState } from '@/hooks/use-lesson-state'
+
+export interface AnnotationRailHandle {
+    addText: (globalX: number, y: number, style: { color: string, fontSize: number }) => void
+}
 
 interface AnnotationRailProps {
     totalWidth: number
@@ -16,196 +20,245 @@ interface AnnotationRailProps {
 
 const CHUNK_SIZE = 2000;
 
-export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, data, onSave, color, textSize = 20 }: AnnotationRailProps) {
-    const chunkCount = Math.ceil(totalWidth / CHUNK_SIZE);
+export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailProps>(
+    ({ totalWidth, height, activeTool, clearTrigger, data, onSave, color, textSize = 20 }, ref) => {
+        const chunkCount = Math.ceil(totalWidth / CHUNK_SIZE);
+        const chunkRefs = useRef<(AnnotationChunkHandle | null)[]>([]);
 
-    const handleChunkSave = (index: number, chunkData: any) => {
-        onSave({
-            ...data,
-            [index]: chunkData
-        })
-    }
-
-    // ATOMIC CLEAR: Parent saves ONCE for everyone
-    useEffect(() => {
-        if (clearTrigger > 0) {
-            // Save an empty object to wipe the DB instantly
-            onSave({})
+        const handleChunkSave = (index: number, chunkData: any) => {
+            onSave({
+                ...data,
+                [index]: chunkData
+            })
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [clearTrigger]) // Intentionally excludes onSave to avoid loops
 
-    return (
-        <div
-            className="absolute top-0 left-0 z-10 flex"
-            style={{ width: totalWidth, height: height }}
-        >
-            {Array.from({ length: chunkCount }).map((_, i) => (
-                <AnnotationChunk
-                    // Force remount if data changes significantly to prevent visual ghosts
-                    key={`${i}-${Object.keys(data[i] || {}).length}`}
-                    index={i}
-                    width={i === chunkCount - 1 ? totalWidth % CHUNK_SIZE : CHUNK_SIZE}
-                    height={height}
-                    activeTool={activeTool}
-                    clearTrigger={clearTrigger}
-                    initialData={data[i]}
-                    onSave={(chunkData) => handleChunkSave(i, chunkData)}
-                    color={color}
-                    textSize={textSize}
-                />
-            ))}
-        </div>
-    )
+        // Expose method to Parent
+        useImperativeHandle(ref, () => ({
+            addText: (globalX, y, style) => {
+                const chunkIndex = Math.floor(globalX / CHUNK_SIZE)
+                const localX = globalX % CHUNK_SIZE
+
+                const targetChunk = chunkRefs.current[chunkIndex]
+                if (targetChunk) {
+                    targetChunk.addText(localX, y, style)
+                }
+            }
+        }))
+
+        // ATOMIC CLEAR: Parent saves ONCE for everyone
+        useEffect(() => {
+            if (clearTrigger > 0) {
+                onSave({})
+            }
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [clearTrigger])
+
+        return (
+            <div
+                className="absolute top-0 left-0 z-10 flex"
+                style={{ width: totalWidth, height: height }}
+            >
+                {Array.from({ length: chunkCount }).map((_, i) => (
+                    <AnnotationChunk
+                        key={`${i}-${Object.keys(data[i] || {}).length}`}
+                        ref={(el) => { chunkRefs.current[i] = el }}
+                        index={i}
+                        width={i === chunkCount - 1 ? totalWidth % CHUNK_SIZE : CHUNK_SIZE}
+                        height={height}
+                        activeTool={activeTool}
+                        clearTrigger={clearTrigger}
+                        initialData={data[i]}
+                        onSave={(chunkData: any) => handleChunkSave(i, chunkData)}
+                        color={color}
+                        textSize={textSize}
+                    />
+                ))}
+            </div>
+        )
+    }
+)
+AnnotationRail.displayName = "AnnotationRail"
+
+interface AnnotationChunkHandle {
+    addText: (x: number, y: number, style: { color: string, fontSize: number }) => void
 }
 
-function AnnotationChunk({ width, height, index, activeTool, clearTrigger, initialData, onSave, color, textSize }: {
-    width: number, height: number, index: number,
-    activeTool: 'scroll' | 'pen' | 'eraser' | 'text',
-    clearTrigger: number,
-    initialData: any,
-    onSave: (data: any) => void,
-    color: string,
-    textSize: number
-}) {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
-    const fabricRef = useRef<Canvas | null>(null)
-    const isMounted = useRef(true)
+const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
+    ({ width, height, index, activeTool, clearTrigger, initialData, onSave, color, textSize }, ref) => {
+        const canvasRef = useRef<HTMLCanvasElement>(null)
+        const fabricRef = useRef<Canvas | null>(null)
+        const isMounted = useRef(true)
 
-    // 1. Initialize Canvas
-    useEffect(() => {
-        isMounted.current = true;
-        if (!canvasRef.current) return
+        useImperativeHandle(ref, () => ({
+            addText: (x, y, style) => {
+                const canvas = fabricRef.current
+                if (!canvas) return
 
-        const canvas = new Canvas(canvasRef.current, {
-            width,
-            height,
-            backgroundColor: 'transparent',
-            selection: false,
-            renderOnAddRemove: true,
-        })
-
-        const brush = new PencilBrush(canvas)
-        brush.color = color || "#ff0000"
-        brush.width = 4
-        canvas.freeDrawingBrush = brush
-
-        canvas.on('path:created', () => {
-            if (isMounted.current) onSave(canvas.toJSON())
-        })
-
-        // Eraser logic is handled in tool effect
-        canvas.on('mouse:down', () => { })
-
-        fabricRef.current = canvas
-
-        return () => {
-            isMounted.current = false
-            try { canvas.dispose() } catch (e) { }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [width, height]) // Removed color from deps
-
-    // 2. REACTIVE DATA LOADER
-    useEffect(() => {
-        if (!fabricRef.current) return;
-        const canvas = fabricRef.current;
-
-        if (initialData && Object.keys(initialData).length > 0) {
-            try {
-                canvas.loadFromJSON(initialData, () => {
-                    if (isMounted.current) canvas.requestRenderAll()
-                })
-            } catch (e) { console.error("Error loading chunk", e) }
-        } else {
-            // This handles the "Student Receive Clear" case
-            canvas.clear();
-            canvas.backgroundColor = 'transparent';
-            canvas.requestRenderAll();
-        }
-    }, [initialData])
-
-    // 3. Tool Logic
-    useEffect(() => {
-        if (!fabricRef.current) return
-        const canvas = fabricRef.current
-
-        if (activeTool === 'pen') {
-            canvas.isDrawingMode = true
-            canvas.defaultCursor = 'crosshair'
-            canvas.hoverCursor = 'crosshair'
-            canvas.off('mouse:down')
-            if (canvas.freeDrawingBrush) {
-                canvas.freeDrawingBrush.color = color || "#ff0000"
-            }
-        } else if (activeTool === 'text') {
-            canvas.isDrawingMode = false
-            canvas.defaultCursor = 'text'
-            canvas.hoverCursor = 'text'
-
-            canvas.off('mouse:down')
-            canvas.on('mouse:down', (opt) => {
-                if (opt.target) return
-
-                const pointer = (canvas as any).getPointer(opt.e)
                 const text = new IText('Text', {
-                    left: pointer.x,
-                    top: pointer.y,
+                    left: x,
+                    top: y,
                     fontFamily: 'Arial',
-                    fill: color,
-                    fontSize: textSize,
-                    selectable: true
+                    fill: style.color,
+                    fontSize: style.fontSize,
+                    selectable: true,
+                    originX: 'center',
+                    originY: 'center'
                 })
 
                 canvas.add(text)
                 canvas.setActiveObject(text)
                 text.enterEditing()
                 text.selectAll()
-
                 canvas.requestRenderAll()
+                onSave(canvas.toJSON())
+            }
+        }))
 
-                text.on('editing:exited', () => {
-                    if (text.text.trim() === '') {
-                        canvas.remove(text)
-                    }
-                    onSave(canvas.toJSON())
-                })
+        // 1. Initialize Canvas
+        useEffect(() => {
+            isMounted.current = true;
+            if (!canvasRef.current) return
+
+            const canvas = new Canvas(canvasRef.current, {
+                width,
+                height,
+                backgroundColor: 'transparent',
+                selection: false,
+                renderOnAddRemove: true,
             })
-        } else if (activeTool === 'eraser') {
-            canvas.isDrawingMode = false
-            canvas.defaultCursor = 'cell'
-            canvas.hoverCursor = 'cell'
 
-            canvas.off('mouse:down');
-            canvas.on('mouse:down', (opt) => {
-                if (opt.target) {
-                    canvas.remove(opt.target)
+            const brush = new PencilBrush(canvas)
+            brush.color = color || "#ff0000"
+            brush.width = 4
+            canvas.freeDrawingBrush = brush
+
+            // --- EVENT LISTENERS ---
+            canvas.on('path:created', () => {
+                if (isMounted.current) onSave(canvas.toJSON())
+            })
+
+            canvas.on('object:modified', () => {
+                if (isMounted.current) onSave(canvas.toJSON())
+            })
+
+            canvas.on('text:editing:exited', (opt) => {
+                const target = opt.target as IText
+                if (target && target.text?.trim() === '') {
+                    canvas.remove(target)
                     canvas.requestRenderAll()
-                    onSave(canvas.toJSON())
                 }
+                if (isMounted.current) onSave(canvas.toJSON())
             })
-        } else {
-            canvas.isDrawingMode = false
-            canvas.defaultCursor = 'default'
-            canvas.off('mouse:down')
-        }
-    }, [activeTool, color, onSave, textSize])
 
-    // 4. VISUAL CLEAR (Visual Only - Parent handles DB save)
-    useEffect(() => {
-        if (clearTrigger > 0 && fabricRef.current) {
-            fabricRef.current.clear()
-            fabricRef.current.backgroundColor = 'transparent'
-            fabricRef.current.requestRenderAll()
-            // REMOVED: onSave() - Parent now handles the atomic DB save
-        }
-    }, [clearTrigger])
+            fabricRef.current = canvas
 
-    const pointerEvents = activeTool === 'scroll' ? 'none' : 'auto'
+            return () => {
+                isMounted.current = false
+                try { canvas.dispose() } catch (e) { }
+            }
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [width, height])
 
-    return (
-        <div style={{ width, height, pointerEvents: pointerEvents as any }}>
-            <canvas ref={canvasRef} />
-        </div>
-    )
-}
+        // 2. REACTIVE DATA LOADER
+        useEffect(() => {
+            if (!fabricRef.current) return;
+            const canvas = fabricRef.current;
+
+            if (initialData && Object.keys(initialData).length > 0) {
+                try {
+                    canvas.loadFromJSON(initialData, () => {
+                        if (isMounted.current) canvas.requestRenderAll()
+                    })
+                } catch (e) { console.error("Error loading chunk", e) }
+            } else {
+                canvas.clear();
+                canvas.backgroundColor = 'transparent';
+                canvas.requestRenderAll();
+            }
+        }, [initialData])
+
+        // 3. Tool Logic
+        useEffect(() => {
+            if (!fabricRef.current) return
+            const canvas = fabricRef.current
+
+            if (activeTool === 'pen') {
+                canvas.isDrawingMode = true
+                canvas.defaultCursor = 'crosshair'
+                canvas.hoverCursor = 'crosshair'
+                canvas.forEachObject(o => { o.selectable = false })
+                canvas.off('mouse:down')
+                if (canvas.freeDrawingBrush) {
+                    canvas.freeDrawingBrush.color = color || "#ff0000"
+                }
+            } else if (activeTool === 'eraser') {
+                canvas.isDrawingMode = false
+                canvas.defaultCursor = 'cell'
+                canvas.hoverCursor = 'cell'
+                canvas.forEachObject(o => { o.selectable = false })
+
+                canvas.off('mouse:down');
+                canvas.on('mouse:down', (opt) => {
+                    if (opt.target) {
+                        canvas.remove(opt.target)
+                        canvas.requestRenderAll()
+                        onSave(canvas.toJSON())
+                    }
+                })
+            } else if (activeTool === 'text') {
+                // legacy click-to-place (can keep or remove, user wants spawn-in-center)
+                // keeping it for now but user will likely use the new button
+                canvas.isDrawingMode = false
+                canvas.defaultCursor = 'text'
+                canvas.hoverCursor = 'text'
+                canvas.forEachObject(o => { o.selectable = true })
+
+                canvas.off('mouse:down')
+                canvas.on('mouse:down', (opt) => {
+                    if (opt.target) return
+                    const pointer = (canvas as any).getPointer(opt.e)
+                    const text = new IText('Text', {
+                        left: pointer.x,
+                        top: pointer.y,
+                        fontFamily: 'Arial',
+                        fill: color,
+                        fontSize: textSize,
+                        selectable: true,
+                        originX: 'center',
+                        originY: 'center'
+                    })
+                    canvas.add(text)
+                    canvas.setActiveObject(text)
+                    text.enterEditing()
+                    text.selectAll()
+                    canvas.requestRenderAll()
+                })
+            } else {
+                canvas.isDrawingMode = false
+                canvas.defaultCursor = 'default'
+                canvas.hoverCursor = 'move'
+                canvas.forEachObject(o => { o.selectable = true })
+                canvas.off('mouse:down')
+            }
+            canvas.requestRenderAll()
+        }, [activeTool, color, onSave, textSize])
+
+        // 4. VISUAL CLEAR
+        useEffect(() => {
+            if (clearTrigger > 0 && fabricRef.current) {
+                fabricRef.current.clear()
+                fabricRef.current.backgroundColor = 'transparent'
+                fabricRef.current.requestRenderAll()
+            }
+        }, [clearTrigger])
+
+        const pointerEvents = activeTool === 'scroll' ? 'none' : 'auto'
+
+        return (
+            <div style={{ width, height, pointerEvents: pointerEvents as any }}>
+                <canvas ref={canvasRef} />
+            </div>
+        )
+    }
+)
+AnnotationChunk.displayName = "AnnotationChunk"

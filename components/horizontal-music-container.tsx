@@ -1,13 +1,14 @@
 "use client"
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { AnnotationRail } from './annotation-rail'
+import { AnnotationRail, AnnotationRailHandle } from './annotation-rail'
 import { Pencil, Hand, Loader2, Eraser, Trash2, Cloud } from 'lucide-react'
 import { useLessonState } from '@/hooks/use-lesson-state'
 
 export interface HorizontalMusicContainerHandle {
     undo: () => void;
     redo: () => void;
+    addText: (style: { color: string, fontSize: number }) => void;
 }
 
 interface HorizontalMusicContainerProps {
@@ -31,6 +32,7 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
         const containerRef = useRef<HTMLDivElement>(null)
         const scrollContainerRef = useRef<HTMLDivElement>(null)
         const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
+        const railRef = useRef<AnnotationRailHandle>(null)
 
         const [isLoaded, setIsLoaded] = useState(false)
         const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
@@ -106,6 +108,18 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
                 } else {
                     console.log("↻ Cannot redo - already at newest state")
                 }
+            },
+            addText: (style: { color: string, fontSize: number }) => {
+                if (!scrollContainerRef.current || !railRef.current) return
+
+                const container = scrollContainerRef.current
+                const visibleWidth = container.clientWidth
+                const scrollX = container.scrollLeft
+
+                const centerX = scrollX + (visibleWidth / 2)
+                const centerY = dimensions.height > 0 ? dimensions.height / 2 : 150
+
+                railRef.current.addText(centerX, centerY, style)
             }
         }))
 
@@ -292,6 +306,7 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
                         <div ref={containerRef} className="absolute inset-0" />
                         {isLoaded && isStateLoaded && (
                             <AnnotationRail
+                                ref={railRef}
                                 totalWidth={dimensions.width + 200}
                                 height={dimensions.height}
                                 activeTool={activeTool}

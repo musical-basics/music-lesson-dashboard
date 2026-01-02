@@ -217,6 +217,28 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
       setActivePresetId(id)
       setTextSize(preset.fontSize)
       setPenColor(preset.color)
+
+      // Auto-trigger text if selected from presets
+      if (musicContainerRef.current) {
+        musicContainerRef.current.addText({
+          color: preset.color,
+          fontSize: preset.fontSize
+        })
+        setActiveTool(null)
+      } else {
+        setActiveTool('text')
+      }
+    }
+  }
+
+  const handleTriggerText = () => {
+    if (musicContainerRef.current) {
+      musicContainerRef.current.addText({
+        color: penColor,
+        fontSize: textSize
+      })
+      setActiveTool(null)
+    } else {
       setActiveTool('text')
     }
   }
@@ -453,10 +475,10 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
       <Popover>
         <div className="flex items-center bg-zinc-800/50 rounded-md border border-zinc-700 mx-1">
           <Button
-            variant={activeTool === "text" ? "default" : "ghost"}
+            variant="ghost"
             size="sm"
             className="w-8 h-8 p-0 rounded-r-none"
-            onClick={() => setActiveTool("text")}
+            onClick={handleTriggerText}
             title="Add Text"
           >
             <Type className="w-4 h-4" />
