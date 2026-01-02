@@ -28,12 +28,45 @@ import {
   Trash2,
   Save,
 } from "lucide-react"
-import { VideoConference } from "@livekit/components-react"
+import { VideoConference, useTracks, ParticipantTile } from "@livekit/components-react"
+import { Track } from "livekit-client"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { HorizontalMusicContainer, HorizontalMusicContainerHandle } from "@/components/horizontal-music-container"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
 import { useRoomSync, ActivePiece } from "@/hooks/use-room-sync"
+
+// Custom component that forces vertical video stacking
+function VerticalVideoStack() {
+  const tracks = useTracks(
+    [
+      { source: Track.Source.Camera, withPlaceholder: true },
+      { source: Track.Source.ScreenShare, withPlaceholder: false },
+    ],
+    { onlySubscribed: false }
+  );
+
+  return (
+    <div className="flex flex-col h-full w-full bg-black rounded-lg overflow-hidden">
+      {tracks.map((track) => (
+        <div
+          key={track.participant.identity}
+          className="flex-1 relative border-b border-zinc-800 last:border-b-0 overflow-hidden"
+        >
+          <ParticipantTile
+            trackRef={track}
+            className="w-full h-full object-cover"
+          />
+        </div>
+      ))}
+      {tracks.length === 0 && (
+        <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+          Waiting for video...
+        </div>
+      )}
+    </div>
+  );
+}
 
 type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
 type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | null
@@ -502,7 +535,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
                 <div className="hidden lg:flex lg:w-[30%] p-3 lg:p-4 lg:pl-0 flex-col gap-3 lg:gap-4">
                   <div className="h-full w-full">
-                    <VideoConference />
+                    <VerticalVideoStack />
                   </div>
                 </div>
               </div>
@@ -512,7 +545,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               <div className="h-full p-3 lg:p-4 flex flex-col gap-3 lg:gap-4">
                 <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 max-w-5xl mx-auto w-full">
                   <div className="h-full w-full">
-                    <VideoConference />
+                    <VerticalVideoStack />
                   </div>
                 </div>
               </div>
@@ -522,7 +555,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               <div className="h-full p-3 lg:p-4 relative">
                 <div className="h-full flex items-center justify-center">
                   <div className="w-full h-full max-w-6xl">
-                    <VideoConference />
+                    <VerticalVideoStack />
                   </div>
                 </div>
                 <Button
@@ -544,7 +577,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
           <div className="relative h-full w-full flex flex-col">
             {/* LAYER A: The Video (Always rendered) */}
             <div className={`flex-grow h-full w-full ${showSheetMusic ? 'hidden' : 'block'}`}>
-              <VideoConference />
+              <VerticalVideoStack />
             </div>
 
             {/* LAYER B: The Sheet Music (Only when toggled) */}
