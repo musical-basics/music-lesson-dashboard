@@ -9,11 +9,10 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function GET() {
     // Fetch all unique student_ids from the annotations table
-    // This effectively builds your "Student List" automatically based on usage
-    // We select student_id and updated_at to show when they were last active
+    // Include the 'data' column which contains the student name/email
     const { data, error } = await supabase
         .from('classroom_annotations')
-        .select('student_id, updated_at')
+        .select('student_id, updated_at, data')
         .order('updated_at', { ascending: false })
 
     if (error) {
@@ -22,18 +21,27 @@ export async function GET() {
     }
 
     // Deduplicate (Keep most recent entry for each student)
-    // The query is ordered by updated_at desc, so the first occurrence is the latest
-    const uniqueStudents = new Map()
+    // Also extract name from the 'data' column
+    const uniqueStudents = new Map<string, { lastSeen: string; name?: string; email?: string }>()
+
     data.forEach(row => {
         if (!uniqueStudents.has(row.student_id)) {
-            uniqueStudents.set(row.student_id, row.updated_at)
+            // Extract name and email from data if it exists
+            const studentData = row.data || {}
+            uniqueStudents.set(row.student_id, {
+                lastSeen: row.updated_at,
+                name: studentData.name || undefined,
+                email: studentData.email || undefined
+            })
         }
     })
 
     // Convert map to array
-    const students = Array.from(uniqueStudents.entries()).map(([id, date]) => ({
+    const students = Array.from(uniqueStudents.entries()).map(([id, info]) => ({
         id,
-        lastSeen: date
+        lastSeen: info.lastSeen,
+        name: info.name,
+        email: info.email
     }))
 
     return NextResponse.json(students)

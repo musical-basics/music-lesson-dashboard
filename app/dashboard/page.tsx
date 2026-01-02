@@ -301,11 +301,11 @@ export default function Dashboard() {
                                         <div className="mb-3 sm:mb-0">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-zinc-800 to-zinc-900 border border-zinc-700 flex items-center justify-center text-zinc-400 font-bold text-lg">
-                                                    {student.id.charAt(0).toUpperCase()}
+                                                    {(student.name || student.id).charAt(0).toUpperCase()}
                                                 </div>
                                                 <div>
                                                     <h3 className="font-medium text-zinc-200 group-hover:text-white capitalize">
-                                                        {student.id}
+                                                        {student.name || student.id}
                                                     </h3>
                                                     <p className="text-xs text-zinc-500">
                                                         Last active: {new Date(student.lastSeen).toLocaleDateString()}
