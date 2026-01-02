@@ -1,6 +1,7 @@
 "use client"
 import { useState } from 'react'
-import { LiveKitRoom, VideoConference } from "@livekit/components-react"
+import { LiveKitRoom, VideoConference, useTracks, ParticipantTile } from "@livekit/components-react"
+import { Track } from "livekit-client"
 import { MusicLibrary, Song } from '@/components/music-library'
 import { HorizontalMusicContainer } from '@/components/horizontal-music-container'
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Settings2 } from 'lucide-react'
@@ -11,6 +12,40 @@ interface LiveSessionProps {
     studentId: string
     studentName: string
     onDisconnect: () => void
+}
+
+// Custom component that forces vertical video stacking
+function VerticalVideoStack() {
+    // Fetch all Camera and ScreenShare tracks
+    const tracks = useTracks(
+        [
+            { source: Track.Source.Camera, withPlaceholder: true },
+            { source: Track.Source.ScreenShare, withPlaceholder: false },
+        ],
+        { onlySubscribed: false }
+    );
+
+    return (
+        <div className="flex flex-col h-full w-full bg-black">
+            {tracks.map((track) => (
+                <div
+                    key={track.participant.identity}
+                    // flex-1 ensures they split the height equally (50/50 for 2 people)
+                    className="flex-1 relative border-b border-zinc-800 last:border-b-0 overflow-hidden"
+                >
+                    <ParticipantTile
+                        trackRef={track}
+                        className="w-full h-full object-cover"
+                    />
+                </div>
+            ))}
+            {tracks.length === 0 && (
+                <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+                    Waiting for video...
+                </div>
+            )}
+        </div>
+    );
 }
 
 export function LiveSession({ token, serverUrl, studentId, studentName, onDisconnect }: LiveSessionProps) {
@@ -97,7 +132,8 @@ export function LiveSession({ token, serverUrl, studentId, studentName, onDiscon
                     {/* RIGHT: Video */}
                     <div className="w-[300px] bg-zinc-900 flex flex-col shrink-0 border-l border-zinc-800">
                         <div className="flex-1 relative">
-                            <VideoConference />
+                            {/* Use our custom stack instead of the default grid */}
+                            <VerticalVideoStack />
                         </div>
                         {/* Chat Placeholder */}
                         <div className="h-1/3 border-t border-zinc-800 p-4">
