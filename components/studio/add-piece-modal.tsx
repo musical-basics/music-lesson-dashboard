@@ -2,7 +2,6 @@
 
 import { useState, useRef } from "react"
 import { useForm } from "react-hook-form"
-import { createClient } from "@supabase/supabase-js"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -15,12 +14,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Loader2, Upload, Music, FileMusic } from "lucide-react"
-
-// Initialize Supabase client
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface AddPieceModalProps {
     userId: string
@@ -49,43 +42,27 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
 
             if (!xmlFile) throw new Error("Sheet Music (XML) is required")
 
-            // 1. Upload XML
-            const xmlPath = `${userId}/${Date.now()}_${xmlFile.name}`
-            const { error: xmlError } = await supabase.storage
-                .from('sheet_music')
-                .upload(xmlPath, xmlFile)
-            if (xmlError) throw xmlError
+            // Build FormData for the API route
+            const formData = new FormData()
+            formData.append("title", data.title)
+            formData.append("user_id", userId)
+            formData.append("xml_file", xmlFile)
 
-            // 2. Upload MP3 (Optional)
-            let mp3Path = null
-            if (mp3File) {
-                mp3Path = `${userId}/${Date.now()}_${mp3File.name}`
-                const { error: mp3Error } = await supabase.storage
-                    .from('audio_files')
-                    .upload(mp3Path, mp3File)
-                if (mp3Error) throw mp3Error
+            if (data.composer) formData.append("composer", data.composer)
+            if (data.difficulty) formData.append("difficulty", data.difficulty)
+            if (data.youtube_url) formData.append("youtube_url", data.youtube_url)
+            if (mp3File) formData.append("mp3_file", mp3File)
+
+            // Call the API route (uses service role key, bypasses RLS)
+            const response = await fetch("/api/pieces", {
+                method: "POST",
+                body: formData
+            })
+
+            if (!response.ok) {
+                const errorData = await response.json()
+                throw new Error(errorData.error || "Failed to add piece")
             }
-
-            // 3. Get Public URLs
-            const { data: { publicUrl: xmlUrl } } = supabase.storage.from('sheet_music').getPublicUrl(xmlPath)
-            const mp3Url = mp3Path
-                ? supabase.storage.from('audio_files').getPublicUrl(mp3Path).data.publicUrl
-                : null
-
-            // 4. Insert into Database
-            const { error: dbError } = await supabase
-                .from('pieces')
-                .insert({
-                    user_id: userId,
-                    title: data.title,
-                    composer: data.composer || null,
-                    difficulty: data.difficulty || null,
-                    youtube_url: data.youtube_url || null,
-                    xml_url: xmlUrl,
-                    mp3_url: mp3Url
-                })
-
-            if (dbError) throw dbError
 
             console.log("✅ Piece added successfully!")
             setSuccess(true)
