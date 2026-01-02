@@ -33,6 +33,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { HorizontalMusicContainer, HorizontalMusicContainerHandle } from "@/components/horizontal-music-container"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
+import { useRoomSync, ActivePiece } from "@/hooks/use-room-sync"
 
 type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
 type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | null
@@ -75,7 +76,12 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>("sheet-music")
   const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
-  const [selectedPiece, setSelectedPiece] = useState<Piece | null>(null)
+
+  // Room Sync: Teacher broadcasts, Student receives
+  const { activePiece, setRoomPiece, isLoading: isRoomLoading } = useRoomSync(
+    studentId || "student-1",
+    isStudent ? 'student' : 'teacher'
+  )
 
   const [activeTool, setActiveTool] = useState<AnnotationTool>(null)
   const [penColor, setPenColor] = useState("#ef4444")
@@ -451,14 +457,14 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                         {!isStudent ? (
                           <PieceSelector
                             userId="teacher-1"
-                            selectedPiece={selectedPiece}
-                            onSelectPiece={setSelectedPiece}
+                            selectedPiece={activePiece as Piece | null}
+                            onSelectPiece={(piece) => piece && setRoomPiece(piece as ActivePiece)}
                           />
                         ) : (
                           <>
                             <Music className="w-4 h-4 lg:w-5 lg:h-5 text-primary" />
                             <span className="font-medium text-foreground text-sm lg:text-base">
-                              {selectedPiece?.title || "Sheet Music"}
+                              {activePiece?.title || "Waiting for teacher..."}
                             </span>
                           </>
                         )}
@@ -475,11 +481,11 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                     </div>
 
                     <div className="flex-1 relative bg-zinc-900 overflow-hidden">
-                      {selectedPiece ? (
+                      {activePiece ? (
                         <HorizontalMusicContainer
                           ref={musicContainerRef}
-                          xmlUrl={selectedPiece.xml_url}
-                          songId={selectedPiece.id}
+                          xmlUrl={activePiece.xml_url}
+                          songId={activePiece.id}
                           studentId={studentId || "student-1"}
                           hideToolbar={isStudent}
                           externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll'))}
