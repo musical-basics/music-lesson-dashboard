@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Music, Video, FileMusic, Trash2, Users, Library, ExternalLink } from "lucide-react"
-import { AddPieceModal } from "@/components/studio/add-piece-modal"
+import { Music, Video, FileMusic, Trash2, Users, Library, ExternalLink, Pencil } from "lucide-react"
+import { PieceModal } from "@/components/studio/piece-modal"
 import { Piece } from "@/types/piece"
 
 // Initialize Supabase
@@ -83,9 +83,9 @@ export default function StudioPage() {
                                     <p className="text-zinc-400">Manage sheet music and resources for your students.</p>
                                 </div>
                                 {/* The Add Button */}
-                                <AddPieceModal
+                                <PieceModal
                                     userId={userId}
-                                    onPieceAdded={fetchPieces}
+                                    onPieceSaved={fetchPieces}
                                 />
                             </div>
 
@@ -134,6 +134,20 @@ export default function StudioPage() {
                                                 </div>
                                             </CardContent>
                                             <CardFooter className="pt-0 flex justify-end gap-2">
+                                                <PieceModal
+                                                    userId={userId}
+                                                    piece={piece}
+                                                    onPieceSaved={fetchPieces}
+                                                    trigger={
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="text-zinc-500 hover:text-white hover:bg-zinc-800"
+                                                        >
+                                                            <Pencil className="w-4 h-4" />
+                                                        </Button>
+                                                    }
+                                                />
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"

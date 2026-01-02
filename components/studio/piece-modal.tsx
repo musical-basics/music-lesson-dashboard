@@ -13,14 +13,17 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, Upload, Music, FileMusic } from "lucide-react"
+import { Loader2, Upload, Music, FileMusic, Pencil } from "lucide-react"
+import { Piece } from "@/types/piece"
 
-interface AddPieceModalProps {
+interface PieceModalProps {
     userId: string
-    onPieceAdded?: () => void
+    piece?: Piece
+    trigger?: React.ReactNode
+    onPieceSaved?: () => void
 }
 
-export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
+export function PieceModal({ userId, piece, trigger, onPieceSaved }: PieceModalProps) {
     const [open, setOpen] = useState(false)
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState("")
@@ -29,7 +32,16 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
 
     const xmlInputRef = useRef<HTMLInputElement>(null)
 
-    const { register, handleSubmit, reset, formState: { errors } } = useForm()
+    const { register, handleSubmit, reset, formState: { errors } } = useForm({
+        defaultValues: {
+            title: piece?.title || "",
+            composer: piece?.composer || "",
+            difficulty: piece?.difficulty || "",
+            youtube_url: piece?.youtube_url || "",
+            xml_file: null,
+            mp3_file: null,
+        }
+    })
 
     const onSubmit = async (data: any) => {
         setUploading(true)
@@ -40,22 +52,27 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
             const xmlFile = data.xml_file[0]
             const mp3File = data.mp3_file?.[0]
 
-            if (!xmlFile) throw new Error("Sheet Music (XML) is required")
+            if (!piece && !xmlFile) throw new Error("Sheet Music (XML) is required")
 
             // Build FormData for the API route
             const formData = new FormData()
             formData.append("title", data.title)
             formData.append("user_id", userId)
-            formData.append("xml_file", xmlFile)
+
+            if (xmlFile) formData.append("xml_file", xmlFile)
 
             if (data.composer) formData.append("composer", data.composer)
             if (data.difficulty) formData.append("difficulty", data.difficulty)
             if (data.youtube_url) formData.append("youtube_url", data.youtube_url)
             if (mp3File) formData.append("mp3_file", mp3File)
 
+            // Determine URL and Method
+            const url = piece ? `/api/pieces/${piece.id}` : "/api/pieces"
+            const method = piece ? "PUT" : "POST"
+
             // Call the API route (uses service role key, bypasses RLS)
-            const response = await fetch("/api/pieces", {
-                method: "POST",
+            const response = await fetch(url, {
+                method,
                 body: formData
             })
 
@@ -64,15 +81,17 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
                 throw new Error(errorData.error || "Failed to add piece")
             }
 
-            console.log("✅ Piece added successfully!")
+            console.log(`✅ Piece ${piece ? "updated" : "added"} successfully!`)
             setSuccess(true)
-            reset()
-            setXmlFileName(null)
+            if (!piece) {
+                reset()
+                setXmlFileName(null)
+            }
 
             setTimeout(() => {
                 setOpen(false)
                 setSuccess(false)
-                if (onPieceAdded) onPieceAdded()
+                if (onPieceSaved) onPieceSaved()
             }, 1000)
 
         } catch (err: any) {
@@ -86,15 +105,17 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button className="bg-indigo-600 hover:bg-indigo-700">
-                    <Upload className="w-4 h-4 mr-2" /> Add New Piece
-                </Button>
+                {trigger ? trigger : (
+                    <Button className="bg-indigo-600 hover:bg-indigo-700">
+                        <Upload className="w-4 h-4 mr-2" /> Add New Piece
+                    </Button>
+                )}
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px] bg-zinc-900 border-zinc-800">
                 <DialogHeader>
-                    <DialogTitle className="text-white">Add Repertoire</DialogTitle>
+                    <DialogTitle className="text-white">{piece ? "Edit Repertoire" : "Add Repertoire"}</DialogTitle>
                     <DialogDescription className="text-zinc-400">
-                        Upload a MusicXML file to use in the classroom.
+                        {piece ? "Update details or replace files." : "Upload a MusicXML file to use in the classroom."}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -159,14 +180,14 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
                     </div>
 
                     <div className="space-y-2">
-                        <Label className="text-zinc-300">Sheet Music (.musicxml or .xml) *</Label>
+                        <Label className="text-zinc-300">Sheet Music (.musicxml or .xml) {piece ? "(Optional)" : "*"}</Label>
                         <input
                             type="file"
                             accept=".xml,.musicxml"
                             className="hidden"
-                            {...register("xml_file", { required: true })}
+                            {...register("xml_file", { required: !piece })}
                             ref={(e) => {
-                                register("xml_file", { required: true }).ref(e)
+                                register("xml_file", { required: !piece }).ref(e)
                                 xmlInputRef.current = e
                             }}
                             onChange={(e) => {
@@ -181,7 +202,7 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
                         >
                             <FileMusic className="w-8 h-8 text-indigo-400 mb-2" />
                             <span className="text-sm text-zinc-400">
-                                {xmlFileName ? xmlFileName : "Click to upload XML"}
+                                {xmlFileName ? xmlFileName : (piece?.xml_url ? "Click to replace XML" : "Click to upload XML")}
                             </span>
                         </div>
                         {errors.xml_file && <span className="text-xs text-red-500">File required</span>}
@@ -215,7 +236,7 @@ export function AddPieceModal({ userId, onPieceAdded }: AddPieceModalProps) {
                             className="bg-indigo-600 hover:bg-indigo-700"
                         >
                             {uploading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                            {uploading ? "Uploading..." : "Save to Library"}
+                            {uploading ? "Uploading..." : (piece ? "Save Changes" : "Save to Library")}
                         </Button>
                     </div>
                 </form>
