@@ -27,6 +27,8 @@ import {
   Redo2,
   Trash2,
   Save,
+  Settings2,
+  Plus
 } from "lucide-react"
 import { VideoConference, useTracks, ParticipantTile } from "@livekit/components-react"
 import { Track } from "livekit-client"
@@ -35,6 +37,23 @@ import { HorizontalMusicContainer, HorizontalMusicContainerHandle } from "@/comp
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
 import { useRoomSync, ActivePiece } from "@/hooks/use-room-sync"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Label } from "@/components/ui/label"
+import { supabase } from "@/supabase/client"
+
+// Define Preset Type
+type TextPreset = {
+  id: string
+  name: string
+  fontSize: number
+  color: string
+}
+
+const DEFAULT_PRESETS: TextPreset[] = [
+  { id: 'p1', name: 'Fingerings', fontSize: 16, color: '#ef4444' }, // Red small
+  { id: 'p2', name: 'Note Names', fontSize: 20, color: '#3b82f6' }, // Blue medium
+  { id: 'p3', name: 'Teacher Note', fontSize: 28, color: '#f59e0b' }, // Orange large
+]
 
 // Custom component that forces vertical video stacking
 function VerticalVideoStack() {
@@ -132,6 +151,75 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const musicContainerRef = useRef<HorizontalMusicContainerHandle>(null)
 
   const colors = ["#ef4444", "#8b5cf6", "#22c55e", "#3b82f6", "#f59e0b"]
+
+  // TEXT TOOL STATE
+  const [textSize, setTextSize] = useState(20)
+  const [presets, setPresets] = useState<TextPreset[]>(DEFAULT_PRESETS)
+  const [activePresetId, setActivePresetId] = useState<string>('p2')
+
+  const userId = "teacher-1"
+
+  // 1. LOAD PRESETS FROM DB
+  useEffect(() => {
+    const loadPresets = async () => {
+      const { data } = await supabase
+        .from('classroom_presets')
+        .select('data')
+        .eq('user_id', userId)
+        .eq('preset_type', 'text_tool')
+        .single()
+
+      if (data?.data) {
+        setPresets(data.data as any)
+      }
+    }
+    loadPresets()
+  }, [])
+
+  // 2. SAVE PRESETS TO DB
+  const savePresetToDB = async (updatedPresets: TextPreset[]) => {
+    setPresets(updatedPresets) // Update UI immediately
+
+    // Save to Supabase
+    const { error } = await supabase
+      .from('classroom_presets')
+      .upsert({
+        user_id: userId,
+        preset_type: 'text_tool',
+        data: updatedPresets,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id, preset_type' })
+
+    if (error) console.error("Error saving presets:", error)
+  }
+
+  // Handle Creating New Preset
+  const handleSaveCurrentStyle = () => {
+    const name = prompt("Name this preset? (e.g. 'Chords')")
+    if (!name) return
+
+    const newPreset: TextPreset = {
+      id: Date.now().toString(),
+      name,
+      fontSize: textSize,
+      color: penColor // Uses the current pen color state
+    }
+
+    const updated = [...presets, newPreset]
+    savePresetToDB(updated)
+    setActivePresetId(newPreset.id)
+  }
+
+  // Apply Preset
+  const applyPreset = (id: string) => {
+    const preset = presets.find(p => p.id === id)
+    if (preset) {
+      setActivePresetId(id)
+      setTextSize(preset.fontSize)
+      setPenColor(preset.color)
+      setActiveTool('text')
+    }
+  }
 
   const saveToHistory = (newStrokes: Stroke[], newTexts: TextAnnotation[]) => {
     const newHistory = history.slice(0, historyIndex + 1)
@@ -362,15 +450,66 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
       >
         <Highlighter className="w-4 h-4" />
       </Button>
-      <Button
-        variant={activeTool === "text" ? "default" : "ghost"}
-        size="sm"
-        className="w-8 h-8 p-0"
-        onClick={() => setActiveTool(activeTool === "text" ? null : "text")}
-        title="Add Text"
-      >
-        <Type className="w-4 h-4" />
-      </Button>
+      <Popover>
+        <div className="flex items-center bg-zinc-800/50 rounded-md border border-zinc-700 mx-1">
+          <Button
+            variant={activeTool === "text" ? "default" : "ghost"}
+            size="sm"
+            className="w-8 h-8 p-0 rounded-r-none"
+            onClick={() => setActiveTool("text")}
+            title="Add Text"
+          >
+            <Type className="w-4 h-4" />
+          </Button>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className="w-6 h-8 p-0 rounded-l-none border-l border-zinc-700 hover:bg-zinc-700">
+              <Settings2 className="w-3 h-3" />
+            </Button>
+          </PopoverTrigger>
+        </div>
+        <PopoverContent className="w-64 bg-zinc-900 border-zinc-800 p-4 space-y-4">
+          <div className="space-y-2">
+            <Label className="text-xs text-zinc-400">Text Size: {textSize}px</Label>
+            <div className="flex items-center gap-3">
+              <span className="text-xs">A</span>
+              <input
+                type="range"
+                min="12"
+                max="72"
+                value={textSize}
+                onChange={(e) => setTextSize(Number(e.target.value))}
+                className="flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
+              />
+              <span className="text-lg">A</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-zinc-400">Presets</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {presets.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => applyPreset(p.id)}
+                  className={`text-xs px-2 py-1.5 rounded border text-left truncate transition-colors ${activePresetId === p.id ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300'}`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <div className="pt-2 border-t border-zinc-800">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-xs h-7 border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                onClick={handleSaveCurrentStyle}
+              >
+                <Plus className="w-3 h-3 mr-2" /> Save Current Style
+              </Button>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
       <Button
         variant={activeTool === "eraser" ? "default" : "ghost"}
         size="sm"
@@ -521,8 +660,9 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                           songId={activePiece.id}
                           studentId={studentId || "student-1"}
                           hideToolbar={isStudent}
-                          externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : 'scroll'))}
+                          externalTool={isStudent ? 'scroll' : (activeTool === 'eraser' ? 'eraser' : (activeTool === 'pen' || activeTool === 'highlighter' ? 'pen' : activeTool || 'scroll'))}
                           externalColor={penColor}
+                          externalTextSize={textSize}
                         />
                       ) : (
                         <div className="flex items-center justify-center h-full text-zinc-500">

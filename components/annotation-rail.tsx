@@ -1,21 +1,22 @@
 "use client"
 import { useEffect, useRef } from 'react'
-import { Canvas, PencilBrush } from 'fabric'
+import { Canvas, PencilBrush, IText } from 'fabric'
 import { AnnotationState } from '@/hooks/use-lesson-state'
 
 interface AnnotationRailProps {
     totalWidth: number
     height: number
-    activeTool: 'scroll' | 'pen' | 'eraser'
+    activeTool: 'scroll' | 'pen' | 'eraser' | 'text'
     clearTrigger: number
     data: AnnotationState
     onSave: (newData: AnnotationState) => void
     color: string
+    textSize?: number
 }
 
 const CHUNK_SIZE = 2000;
 
-export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, data, onSave, color }: AnnotationRailProps) {
+export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, data, onSave, color, textSize = 20 }: AnnotationRailProps) {
     const chunkCount = Math.ceil(totalWidth / CHUNK_SIZE);
 
     const handleChunkSave = (index: number, chunkData: any) => {
@@ -51,19 +52,21 @@ export function AnnotationRail({ totalWidth, height, activeTool, clearTrigger, d
                     initialData={data[i]}
                     onSave={(chunkData) => handleChunkSave(i, chunkData)}
                     color={color}
+                    textSize={textSize}
                 />
             ))}
         </div>
     )
 }
 
-function AnnotationChunk({ width, height, index, activeTool, clearTrigger, initialData, onSave, color }: {
+function AnnotationChunk({ width, height, index, activeTool, clearTrigger, initialData, onSave, color, textSize }: {
     width: number, height: number, index: number,
-    activeTool: 'scroll' | 'pen' | 'eraser',
+    activeTool: 'scroll' | 'pen' | 'eraser' | 'text',
     clearTrigger: number,
     initialData: any,
     onSave: (data: any) => void,
-    color: string
+    color: string,
+    textSize: number
 }) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const fabricRef = useRef<Canvas | null>(null)
@@ -135,6 +138,39 @@ function AnnotationChunk({ width, height, index, activeTool, clearTrigger, initi
             if (canvas.freeDrawingBrush) {
                 canvas.freeDrawingBrush.color = color || "#ff0000"
             }
+        } else if (activeTool === 'text') {
+            canvas.isDrawingMode = false
+            canvas.defaultCursor = 'text'
+            canvas.hoverCursor = 'text'
+
+            canvas.off('mouse:down')
+            canvas.on('mouse:down', (opt) => {
+                if (opt.target) return
+
+                const pointer = (canvas as any).getPointer(opt.e)
+                const text = new IText('Text', {
+                    left: pointer.x,
+                    top: pointer.y,
+                    fontFamily: 'Arial',
+                    fill: color,
+                    fontSize: textSize,
+                    selectable: true
+                })
+
+                canvas.add(text)
+                canvas.setActiveObject(text)
+                text.enterEditing()
+                text.selectAll()
+
+                canvas.requestRenderAll()
+
+                text.on('editing:exited', () => {
+                    if (text.text.trim() === '') {
+                        canvas.remove(text)
+                    }
+                    onSave(canvas.toJSON())
+                })
+            })
         } else if (activeTool === 'eraser') {
             canvas.isDrawingMode = false
             canvas.defaultCursor = 'cell'
@@ -153,7 +189,7 @@ function AnnotationChunk({ width, height, index, activeTool, clearTrigger, initi
             canvas.defaultCursor = 'default'
             canvas.off('mouse:down')
         }
-    }, [activeTool, color, onSave])
+    }, [activeTool, color, onSave, textSize])
 
     // 4. VISUAL CLEAR (Visual Only - Parent handles DB save)
     useEffect(() => {

@@ -14,8 +14,9 @@ interface HorizontalMusicContainerProps {
     xmlUrl: string
     songId: string
     studentId: string
-    externalTool?: 'scroll' | 'pen' | 'eraser'
+    externalTool?: 'scroll' | 'pen' | 'eraser' | 'text'
     externalColor?: string
+    externalTextSize?: number
     hideToolbar?: boolean
 }
 
@@ -25,7 +26,7 @@ type BookmarkData = {
 }
 
 export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandle, HorizontalMusicContainerProps>(
-    ({ xmlUrl, songId, studentId, externalTool, externalColor, hideToolbar }, ref) => {
+    ({ xmlUrl, songId, studentId, externalTool, externalColor, externalTextSize, hideToolbar }, ref) => {
 
         const containerRef = useRef<HTMLDivElement>(null)
         const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -37,6 +38,7 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
 
         const activeTool = externalTool || internalTool
         const activeColor = externalColor || "#ff0000"
+        const activeTextSize = externalTextSize || 20
 
         const [clearTrigger, setClearTrigger] = useState(0)
         const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
@@ -297,6 +299,7 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
                                 data={data}
                                 onSave={handleAnnotationSave}
                                 color={activeColor}
+                                textSize={activeTextSize}
                             />
                         )}
                     </div>
