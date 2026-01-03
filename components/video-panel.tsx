@@ -29,6 +29,7 @@ export interface VideoPanelProps {
     aspectRatio: VideoAspectRatio
     onAspectRatioChange: (ratio: VideoAspectRatio) => void
     className?: string
+    showOverlay?: boolean
 }
 
 // ============================================================================
@@ -107,7 +108,8 @@ export function VideoPanel({
     isStudent,
     aspectRatio,
     onAspectRatioChange,
-    className = ""
+    className = "",
+    showOverlay = true
 }: VideoPanelProps) {
     // LiveKit local participant for camera/mic control
     const { localParticipant } = useLocalParticipant()
@@ -279,32 +281,34 @@ export function VideoPanel({
                 <VerticalVideoStack aspectRatio={aspectRatio} />
 
                 {/* Aspect Ratio Controls Overlay (for mobile) */}
-                <div className="absolute top-2 right-2 bg-black/60 rounded-md p-1 flex items-center gap-1 backdrop-blur-sm z-10">
-                    <Button
-                        variant={aspectRatio === "widescreen" ? "default" : "ghost"}
-                        size="sm"
-                        className="h-6 px-2 text-[10px]"
-                        onClick={() => onAspectRatioChange("widescreen")}
-                    >
-                        16:9
-                    </Button>
-                    <Button
-                        variant={aspectRatio === "standard" ? "default" : "ghost"}
-                        size="sm"
-                        className="h-6 px-2 text-[10px]"
-                        onClick={() => onAspectRatioChange("standard")}
-                    >
-                        4:3
-                    </Button>
-                    <Button
-                        variant={aspectRatio === "portrait" ? "default" : "ghost"}
-                        size="sm"
-                        className="h-6 px-2 text-[10px]"
-                        onClick={() => onAspectRatioChange("portrait")}
-                    >
-                        9:16
-                    </Button>
-                </div>
+                {showOverlay && (
+                    <div className="absolute top-2 right-2 bg-black/60 rounded-md p-1 flex items-center gap-1 backdrop-blur-sm z-10">
+                        <Button
+                            variant={aspectRatio === "widescreen" ? "default" : "ghost"}
+                            size="sm"
+                            className="h-6 px-2 text-[10px]"
+                            onClick={() => onAspectRatioChange("widescreen")}
+                        >
+                            16:9
+                        </Button>
+                        <Button
+                            variant={aspectRatio === "standard" ? "default" : "ghost"}
+                            size="sm"
+                            className="h-6 px-2 text-[10px]"
+                            onClick={() => onAspectRatioChange("standard")}
+                        >
+                            4:3
+                        </Button>
+                        <Button
+                            variant={aspectRatio === "portrait" ? "default" : "ghost"}
+                            size="sm"
+                            className="h-6 px-2 text-[10px]"
+                            onClick={() => onAspectRatioChange("portrait")}
+                        >
+                            9:16
+                        </Button>
+                    </div>
+                )}
             </div>
 
             {/* Controls Bar */}

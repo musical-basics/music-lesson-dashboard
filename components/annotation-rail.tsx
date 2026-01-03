@@ -1,7 +1,8 @@
 "use client"
 import React, { useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import { Canvas, PencilBrush, IText } from 'fabric'
-import { AnnotationState } from '@/hooks/use-lesson-state'
+
+export type AnnotationRailData = Record<string, any>
 
 export interface AnnotationRailHandle {
     addText: (globalX: number, y: number, style: { color: string, fontSize: number }) => void
@@ -14,8 +15,8 @@ interface AnnotationRailProps {
     height: number
     activeTool: 'scroll' | 'select' | 'pen' | 'eraser' | 'text' | null
     clearTrigger: number
-    data: AnnotationState
-    onSave: (newData: AnnotationState) => void
+    data: AnnotationRailData
+    onSave: (newData: AnnotationRailData) => void
     color: string
     textSize?: number
 }
