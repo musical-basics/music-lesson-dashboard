@@ -5,6 +5,7 @@ import { AnnotationRail, AnnotationRailHandle } from './annotation-rail'
 import { AnnotationToolbar, TextPreset, DEFAULT_PRESETS } from './annotation-toolbar'
 import { Loader2, Cloud } from 'lucide-react'
 import { useAnnotationHistory } from '@/hooks/use-annotation-history'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 interface SheetMusicPanelProps {
     xmlUrl: string
@@ -36,8 +37,12 @@ export function SheetMusicPanel({
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
     const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
 
+    const isMobile = useIsMobile()
+
     // Tool State
-    const [activeTool, setActiveTool] = useState<'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | null>('scroll')
+    const [activeTool, setActiveTool] = useState<'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | null>(
+        isMobile ? 'scroll' : 'select'
+    )
     const [penColor, setPenColor] = useState("#ff0000") // Default Red
     const [textSize, setTextSize] = useState(20)
     const [clearTrigger, setClearTrigger] = useState(0)
