@@ -107,6 +107,7 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
         // ----------------------------------------------------------------
         // 3. SCROLL SYNC LOGIC
         // ----------------------------------------------------------------
+        // A. Continuous Sync (Follow Mode - usually for Student)
         useEffect(() => {
             if (hideToolbar && data?.scrollX !== undefined && scrollContainerRef.current) {
                 const currentScroll = scrollContainerRef.current.scrollLeft
@@ -116,6 +117,16 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
                 }
             }
         }, [data?.scrollX, hideToolbar])
+
+        // B. Initial Restore (For Teacher/Everyone on Load)
+        const hasRestoredScroll = useRef(false)
+        useEffect(() => {
+            if (isLoaded && isStateLoaded && data?.scrollX !== undefined && scrollContainerRef.current && !hasRestoredScroll.current) {
+                console.log("📍 Restoring saved scroll position:", data.scrollX)
+                scrollContainerRef.current.scrollLeft = data.scrollX
+                hasRestoredScroll.current = true
+            }
+        }, [isLoaded, isStateLoaded, data?.scrollX])
 
         const scrollTimeout = useRef<NodeJS.Timeout | null>(null)
         const handleContainerScroll = () => {
