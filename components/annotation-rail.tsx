@@ -6,6 +6,7 @@ export type AnnotationRailData = Record<string, any>
 
 export interface AnnotationRailHandle {
     addText: (globalX: number, y: number, style: { color: string, fontSize: number }) => void
+    // 1. Added skipSave parameter
     updateActiveObject: (style: any, skipSave?: boolean) => void
     deleteActiveObject: () => void
 }
@@ -46,8 +47,8 @@ export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailPro
                     targetChunk.addText(localX, y, style)
                 }
             },
+            // 2. Pass skipSave down to chunks
             updateActiveObject: (style, skipSave = false) => {
-                // Broadcast style update to all chunks (only the one with active obj will react)
                 chunkRefs.current.forEach(chunk => chunk?.updateActiveObject(style, skipSave))
             },
             deleteActiveObject: () => {
@@ -58,12 +59,10 @@ export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailPro
         // Global Keyboard Delete Listener
         useEffect(() => {
             const handleKeyDown = (e: KeyboardEvent) => {
-                // Don't delete if we are in an input/textarea
                 const target = e.target as HTMLElement
                 if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
 
                 if (e.key === 'Delete' || e.key === 'Backspace') {
-                    // Tell all chunks to check for active object and delete if not editing
                     chunkRefs.current.forEach(chunk => chunk?.deleteActiveObject())
                 }
             }
@@ -71,7 +70,7 @@ export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailPro
             return () => window.removeEventListener('keydown', handleKeyDown)
         }, [])
 
-        // ATOMIC CLEAR: Parent saves ONCE for everyone
+        // ATOMIC CLEAR
         useEffect(() => {
             if (clearTrigger > 0) {
                 onSave({})
@@ -86,6 +85,8 @@ export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailPro
             >
                 {Array.from({ length: chunkCount }).map((_, i) => (
                     <AnnotationChunk
+                        // 3. IMPORTANT: Use data length for key to force update only when size changes, 
+                        // but rely on internal smart reload for property changes.
                         key={`${i}-${Object.keys(data[i] || {}).length}`}
                         ref={(el) => { chunkRefs.current[i] = el }}
                         index={i}
@@ -141,6 +142,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 canvas.requestRenderAll()
                 onSave(canvas.toJSON())
             },
+            // 4. Implement skipSave logic
             updateActiveObject: (style, skipSave = false) => {
                 const canvas = fabricRef.current
                 if (!canvas) return
@@ -149,7 +151,6 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 if (activeObj) {
                     activeObj.set(style)
                     canvas.requestRenderAll()
-                    // Only save if skipSave is FALSE
                     if (!skipSave) {
                         onSave(canvas.toJSON())
                     }
@@ -208,12 +209,22 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [width, height])
 
-        // 2. REACTIVE DATA LOADER
+        // 5. SMART REACTIVE DATA LOADER
         useEffect(() => {
             if (!fabricRef.current) return;
             const canvas = fabricRef.current;
 
             if (initialData && Object.keys(initialData).length > 0) {
+                // [CRITICAL FIX] Smart Reload:
+                // If the incoming data is identical to what we already have on screen,
+                // ignore it. This prevents the canvas from wiping and reloading 
+                // when *we* caused the update (e.g. changing color).
+                // This keeps the selection active!
+                const currentJSON = canvas.toJSON();
+                if (JSON.stringify(initialData) === JSON.stringify(currentJSON)) {
+                    return;
+                }
+
                 try {
                     canvas.loadFromJSON(initialData, () => {
                         if (isMounted.current) {
@@ -231,9 +242,9 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 canvas.backgroundColor = 'transparent';
                 canvas.requestRenderAll();
             }
-        }, [initialData])
+        }, [initialData]) // Removed activeTool dependency to prevent unwanted reloads
 
-        // 3. Tool Logic
+        // 3. Tool Logic (Updates properties without reloading JSON)
         useEffect(() => {
             if (!fabricRef.current) return
             const canvas = fabricRef.current
@@ -292,6 +303,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                     canvas.requestRenderAll()
                 })
             } else {
+                // Select / Scroll Mode
                 canvas.isDrawingMode = false
                 canvas.selection = true
                 canvas.defaultCursor = 'default'
