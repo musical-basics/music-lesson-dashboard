@@ -4,7 +4,9 @@ import { LiveKitRoom, VideoConference, useTracks, ParticipantTile } from "@livek
 import { Track } from "livekit-client"
 import { MusicLibrary, Song } from '@/components/music-library'
 import { HorizontalMusicContainer } from '@/components/horizontal-music-container'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Settings2 } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Settings2, Disc, Square, Loader2 } from 'lucide-react'
+import { supabase } from '@/supabase/client'
+import { useRef } from 'react'
 
 interface LiveSessionProps {
     token: string
@@ -62,6 +64,120 @@ export function LiveSession({ token, serverUrl, studentId, studentName, onDiscon
         }
     }
 
+    // --- RECORDING LOGIC ---
+    const [isRecording, setIsRecording] = useState(false)
+    const [uploadStatus, setUploadStatus] = useState("")
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+    const chunksRef = useRef<Blob[]>([])
+
+    const uploadToR2 = async (blob: Blob, filename: string) => {
+        const response = await fetch('/api/upload-url', {
+            method: 'POST',
+            body: JSON.stringify({ filename, contentType: blob.type })
+        })
+
+        if (!response.ok) throw new Error("Failed to get upload URL")
+        const { url } = await response.json()
+
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest()
+            xhr.open('PUT', url)
+            xhr.setRequestHeader('Content-Type', blob.type)
+
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100)
+                    setUploadStatus(`Uploading: ${percent}%`)
+                }
+            }
+
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    resolve(true)
+                } else {
+                    reject(new Error("Upload failed"))
+                }
+            }
+            xhr.onerror = () => reject(new Error("Network error during upload"))
+            xhr.send(blob)
+        })
+    }
+
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: true
+            })
+
+            const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' })
+
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) chunksRef.current.push(e.data)
+            }
+
+            recorder.onstop = async () => {
+                const blob = new Blob(chunksRef.current, { type: 'video/webm' })
+                const filename = `${studentId}_${Date.now()}.webm`
+
+                setUploadStatus("Starting upload...")
+                setIsRecording(false) // Ensure UI updates
+
+                try {
+                    await uploadToR2(blob, filename)
+
+                    setUploadStatus("Saving to database...")
+                    const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${filename}`
+
+                    const { error } = await supabase.from('classroom_recordings').insert({
+                        student_id: studentId,
+                        teacher_id: "teacher-1",
+                        filename: `Lesson - ${new Date().toLocaleDateString()}`,
+                        url: publicUrl,
+                        size_bytes: blob.size
+                    })
+
+                    if (error) throw error
+
+                    setUploadStatus("")
+                    alert("✅ Recording saved! It is now available in the student dashboard.")
+
+                } catch (e) {
+                    console.error(e)
+                    setUploadStatus("Error!")
+                    alert("Upload failed. The video will be downloaded locally instead.")
+
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = filename
+                    a.click()
+                }
+            }
+
+            mediaRecorderRef.current = recorder
+            chunksRef.current = []
+            recorder.start()
+            setIsRecording(true)
+
+            // Stop if user cancels screen share
+            stream.getVideoTracks()[0].onended = () => {
+                stopRecording()
+            }
+
+        } catch (err) {
+            console.error("Error starting recording:", err)
+        }
+    }
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop()
+            // Stop tracks
+            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+        }
+    }
+
     return (
         <LiveKitRoom
             video={true}
@@ -96,6 +212,32 @@ export function LiveSession({ token, serverUrl, studentId, studentName, onDiscon
                     </div>
 
                     <div className="flex items-center gap-3">
+                        {/* RECORDING CONTROLS */}
+                        {uploadStatus ? (
+                            <div className="flex items-center gap-2 text-xs text-yellow-500 bg-yellow-500/10 px-3 py-1.5 rounded-full border border-yellow-500/20">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                {uploadStatus}
+                            </div>
+                        ) : (
+                            <button
+                                onClick={isRecording ? stopRecording : startRecording}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${isRecording
+                                    ? "bg-red-500 text-white animate-pulse"
+                                    : "bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                                    }`}
+                            >
+                                {isRecording ? (
+                                    <>
+                                        <Square className="w-3 h-3 fill-current" /> Stop Rec
+                                    </>
+                                ) : (
+                                    <>
+                                        <Disc className="w-3 h-3" /> Record
+                                    </>
+                                )}
+                            </button>
+                        )}
+
                         {/* Settings Placeholder */}
                         <button className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-full transition-colors">
                             <Settings2 className="w-4 h-4" />
@@ -126,6 +268,7 @@ export function LiveSession({ token, serverUrl, studentId, studentName, onDiscon
                             xmlUrl={currentSong.url}
                             songId={currentSong.id}
                             studentId={studentId} // Pass down specific student context
+                            activeTool="scroll"
                         />
                     </div>
 

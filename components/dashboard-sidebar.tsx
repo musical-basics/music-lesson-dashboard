@@ -26,6 +26,11 @@ export function DashboardSidebar({ className, currentView, onNavigate, role = 't
             label: "Repertoire Library",
             icon: Library,
             href: "/studio",
+        },
+        {
+            label: "Recordings",
+            icon: Video,
+            href: "/recordings",
         }
     ]
 

@@ -153,6 +153,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const musicContainerRef = useRef<HorizontalMusicContainerHandle>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
 
   const colors = ["#ef4444", "#8b5cf6", "#22c55e", "#3b82f6", "#f59e0b"]
 
@@ -162,6 +164,128 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const [activePresetId, setActivePresetId] = useState<string>('p2')
 
   const userId = "teacher-1"
+  const [uploadStatus, setUploadStatus] = useState("")
+
+  // --- RECORDING LOGIC ---
+  const uploadToR2 = async (blob: Blob, filename: string): Promise<string> => {
+    // A. Request the Signed URL
+    const response = await fetch('/api/upload-url', {
+      method: 'POST',
+      body: JSON.stringify({ filename, contentType: blob.type })
+    })
+
+    if (!response.ok) throw new Error("Failed to get upload URL")
+
+    // Get the Clean Type back from server
+    const { url, cleanType } = await response.json()
+
+    // B. Upload to R2 with the matching Content-Type
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', url)
+
+      // CRITICAL: This must match what the server signed!
+      xhr.setRequestHeader('Content-Type', cleanType)
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const percent = Math.round((e.loaded / e.total) * 100)
+          setUploadStatus(`Uploading: ${percent}%`)
+        }
+      }
+
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${filename}`
+          resolve(publicUrl)
+        } else {
+          reject(new Error(`R2 rejected upload. Status: ${xhr.status}`))
+        }
+      }
+      xhr.onerror = () => reject(new Error("Network error"))
+      xhr.send(blob)
+    })
+  }
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      })
+
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' })
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
+
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: 'video/webm' })
+        const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
+
+        setUploadStatus("Uploading...")
+        setIsRecording(false)
+
+        try {
+          const publicUrl = await uploadToR2(blob, filename)
+
+          setUploadStatus("Saving to database...")
+
+          const { error } = await supabase.from('classroom_recordings').insert({
+            student_id: studentId || 'guest',
+            teacher_id: userId,
+            filename: `Lesson - ${new Date().toLocaleDateString()}`,
+            url: publicUrl,
+            size_bytes: blob.size
+          })
+
+          if (error) throw error
+
+          setUploadStatus("")
+          alert("✅ Recording saved!")
+
+        } catch (e) {
+          console.error(e)
+          setUploadStatus("Error!")
+          alert("Upload failed. Downloading locally instead.")
+
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = filename
+          a.click()
+        }
+      }
+
+      mediaRecorderRef.current = recorder
+      chunksRef.current = []
+      recorder.start()
+      setIsRecording(true)
+
+      stream.getVideoTracks()[0].onended = () => {
+        stopRecording()
+      }
+
+    } catch (err) {
+      console.error("Error starting recording:", err)
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop()
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+    }
+  }
+
+  const handleRecordClick = () => {
+    if (isRecording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }
 
   // 1. LOAD PRESETS FROM DB
   useEffect(() => {
@@ -940,15 +1064,22 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
           {/* Right Controls */}
           <div className="flex items-center gap-2 lg:gap-3">
-            <Button
-              variant={isRecording ? "destructive" : "secondary"}
-              className={`gap-2 text-xs lg:text-sm ${isRecording ? "animate-pulse" : ""}`}
-              size="sm"
-              onClick={() => setIsRecording(!isRecording)}
-            >
-              <Circle className={`w-3 h-3 lg:w-4 lg:h-4 ${isRecording ? "fill-current" : ""}`} />
-              <span className="hidden sm:inline">{isRecording ? "Rec" : "Record"}</span>
-            </Button>
+            {uploadStatus ? (
+              <div className="flex items-center gap-2 text-xs text-yellow-500 bg-yellow-900/20 px-3 py-1.5 rounded-full border border-yellow-500/30">
+                <Circle className="w-3 h-3 animate-spin" />
+                {uploadStatus}
+              </div>
+            ) : (
+              <Button
+                variant={isRecording ? "destructive" : "secondary"}
+                className={`gap-2 text-xs lg:text-sm ${isRecording ? "animate-pulse" : ""}`}
+                size="sm"
+                onClick={handleRecordClick}
+              >
+                <Circle className={`w-3 h-3 lg:w-4 lg:h-4 ${isRecording ? "fill-current" : ""}`} />
+                <span className="hidden sm:inline">{isRecording ? "Stop" : "Record"}</span>
+              </Button>
+            )}
 
             <Button variant="destructive" size="icon" className="w-10 h-10 lg:w-12 lg:h-12 rounded-full">
               <PhoneOff className="w-4 h-4 lg:w-5 lg:h-5" />
