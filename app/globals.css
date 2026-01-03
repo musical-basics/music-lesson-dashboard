@@ -130,3 +130,23 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Video Aspect Ratio Controls - Override LiveKit internal styling */
+.video-aspect-contain video {
+  object-fit: contain !important;
+}
+
+.video-aspect-cover video {
+  object-fit: cover !important;
+}
+
+/* Also target the underlying lk-participant-tile video */
+.video-aspect-contain .lk-participant-tile video,
+.video-aspect-contain [data-lk-participant-tile] video {
+  object-fit: contain !important;
+}
+
+.video-aspect-cover .lk-participant-tile video,
+.video-aspect-cover [data-lk-participant-tile] video {
+  object-fit: cover !important;
+}

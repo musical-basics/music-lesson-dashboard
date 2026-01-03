@@ -59,8 +59,11 @@ const DEFAULT_PRESETS: TextPreset[] = [
   { id: 'p3', name: 'Teacher Note', fontSize: 28, color: '#f59e0b' }, // Orange large
 ]
 
+// Video aspect ratio options
+type VideoAspectRatio = "widescreen" | "standard" | "portrait"
+
 // Custom component that forces vertical video stacking
-function VerticalVideoStack() {
+function VerticalVideoStack({ aspectRatio = "standard" }: { aspectRatio?: VideoAspectRatio }) {
   const tracks = useTracks(
     [
       { source: Track.Source.Camera, withPlaceholder: true },
@@ -69,16 +72,50 @@ function VerticalVideoStack() {
     { onlySubscribed: false }
   );
 
+  // Get styles for the video container based on aspect ratio
+  const getContainerStyle = (): React.CSSProperties => {
+    switch (aspectRatio) {
+      case "widescreen":
+        return {
+          aspectRatio: "16/9",
+          width: "100%",
+          maxHeight: "100%",
+          margin: "auto",
+        }
+      case "portrait":
+        return {
+          aspectRatio: "9/16",
+          height: "100%",
+          maxWidth: "100%",
+          margin: "auto",
+        }
+      case "standard":
+      default:
+        return {
+          aspectRatio: "4/3",
+          width: "100%",
+          maxHeight: "100%",
+          margin: "auto",
+        }
+    }
+  }
+
+  // CSS class that will style the video element inside ParticipantTile
+  const videoStyleClass = aspectRatio === "widescreen"
+    ? "video-aspect-contain"
+    : "video-aspect-cover"
+
   return (
-    <div className="flex flex-col h-full w-full bg-black rounded-lg overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-black rounded-lg overflow-hidden items-center justify-center">
       {tracks.map((track) => (
         <div
           key={track.participant.identity}
-          className="flex-1 relative border-b border-zinc-800 last:border-b-0 overflow-hidden"
+          className={`relative overflow-hidden ${videoStyleClass}`}
+          style={getContainerStyle()}
         >
           <ParticipantTile
             trackRef={track}
-            className="w-full h-full object-cover"
+            className="w-full h-full"
           />
         </div>
       ))}
@@ -133,6 +170,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const [isMusicMode, setIsMusicMode] = useState(true)
   const [isRecording, setIsRecording] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>("sheet-music")
+  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("widescreen")
   const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
 
   // Toggle camera via LiveKit
@@ -781,7 +819,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
       <div className="w-px h-6 bg-border mx-1" />
 
-      {/* Color picker */}
+      {/* Force re-read */}
       <div className="flex items-center gap-1">
         {colors.map((color) => (
           <button
@@ -873,6 +911,40 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               <PictureInPicture2 className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">PiP</span>
             </Button>
+
+            {/* Separator */}
+            <div className="w-px h-5 bg-border mx-1" />
+
+            {/* Video Aspect Ratio Selector */}
+            <div className="flex items-center gap-1 bg-secondary/50 rounded-md p-0.5">
+              <Button
+                variant={videoAspectRatio === "widescreen" ? "default" : "ghost"}
+                size="sm"
+                className="text-xs h-7 px-2"
+                onClick={() => setVideoAspectRatio("widescreen")}
+                title="Widescreen (16:9)"
+              >
+                16:9
+              </Button>
+              <Button
+                variant={videoAspectRatio === "standard" ? "default" : "ghost"}
+                size="sm"
+                className="text-xs h-7 px-2"
+                onClick={() => setVideoAspectRatio("standard")}
+                title="Standard (4:3)"
+              >
+                4:3
+              </Button>
+              <Button
+                variant={videoAspectRatio === "portrait" ? "default" : "ghost"}
+                size="sm"
+                className="text-xs h-7 px-2"
+                onClick={() => setVideoAspectRatio("portrait")}
+                title="Portrait (9:16)"
+              >
+                9:16
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -937,7 +1009,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
                 <div className="hidden lg:flex lg:w-[30%] p-3 lg:p-4 lg:pl-0 flex-col gap-3 lg:gap-4">
                   <div className="h-full w-full">
-                    <VerticalVideoStack />
+                    <VerticalVideoStack aspectRatio={videoAspectRatio} />
                   </div>
                 </div>
               </div>
@@ -947,7 +1019,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               <div className="h-full p-3 lg:p-4 flex flex-col gap-3 lg:gap-4">
                 <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 max-w-5xl mx-auto w-full">
                   <div className="h-full w-full">
-                    <VerticalVideoStack />
+                    <VerticalVideoStack aspectRatio={videoAspectRatio} />
                   </div>
                 </div>
               </div>
@@ -957,7 +1029,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               <div className="h-full p-3 lg:p-4 relative">
                 <div className="h-full flex items-center justify-center">
                   <div className="w-full h-full max-w-6xl">
-                    <VerticalVideoStack />
+                    <VerticalVideoStack aspectRatio={videoAspectRatio} />
                   </div>
                 </div>
                 <Button
@@ -978,8 +1050,36 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
         {isMobile && (
           <div className="relative h-full w-full flex flex-col">
             {/* LAYER A: The Video (Always rendered) */}
-            <div className={`flex-grow h-full w-full ${showSheetMusic ? 'hidden' : 'block'}`}>
-              <VerticalVideoStack />
+            <div className={`flex-grow h-full w-full relative ${showSheetMusic ? 'hidden' : 'block'}`}>
+              <VerticalVideoStack aspectRatio={videoAspectRatio} />
+
+              {/* Mobile Aspect Ratio Controls Overlay */}
+              <div className="absolute top-2 right-2 bg-black/60 rounded-md p-1 flex items-center gap-1 backdrop-blur-sm z-10">
+                <Button
+                  variant={videoAspectRatio === "widescreen" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => setVideoAspectRatio("widescreen")}
+                >
+                  16:9
+                </Button>
+                <Button
+                  variant={videoAspectRatio === "standard" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => setVideoAspectRatio("standard")}
+                >
+                  4:3
+                </Button>
+                <Button
+                  variant={videoAspectRatio === "portrait" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => setVideoAspectRatio("portrait")}
+                >
+                  9:16
+                </Button>
+              </div>
             </div>
 
             {/* LAYER B: The Sheet Music (Only when toggled) */}
