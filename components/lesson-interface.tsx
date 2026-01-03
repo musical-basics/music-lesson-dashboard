@@ -2,25 +2,25 @@
 
 import type React from "react"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import {
   Music,
   LayoutGrid,
   Maximize2,
   PictureInPicture2,
-  Video
+  Video,
+  Lock,
+  Unlock
 } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
-import { useRoomSync, ActivePiece } from "@/hooks/use-room-sync"
-import { VideoAspectRatio, VideoPanel, VerticalVideoStack } from "@/components/video-panel"
-
-
-type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
+import { useRoomSync, ActivePiece, ViewMode, AspectRatio } from "@/hooks/use-room-sync"
+import { VideoAspectRatio, VideoPanel } from "@/components/video-panel"
 
 
 interface LessonInterfaceProps {
@@ -33,32 +33,62 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const role = searchParams.get('role')
   const isStudent = role === 'student'
 
-  // LiveKit local participant for camera/mic control
-
-  const [viewMode, setViewMode] = useState<ViewMode>("sheet-music")
-  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("widescreen")
-  const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
-
-
-
-
-
-
   // Room Sync: Teacher broadcasts, Student receives
-  const { activePiece, setRoomPiece, isLoading: isRoomLoading } = useRoomSync(
+  const { activePiece, setRoomPiece, settings, setRoomSettings, isLoading: isRoomLoading } = useRoomSync(
     studentId || "student-1",
     isStudent ? 'student' : 'teacher'
   )
 
+  // Local view state (for teacher, or for student when not controlled)
+  const [localViewMode, setLocalViewMode] = useState<ViewMode>("sheet-music")
+  const [localAspectRatio, setLocalAspectRatio] = useState<AspectRatio>("widescreen")
+  const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
 
+  // Derive effective view mode based on teacher control
+  const isControlled = isStudent && settings.teacherControlEnabled
+  const effectiveViewMode = isControlled ? settings.viewMode : localViewMode
+  const effectiveAspectRatio = isControlled ? settings.aspectRatio : localAspectRatio
 
+  // Sync local state with room settings when teacher control is enabled
+  useEffect(() => {
+    if (isControlled) {
+      setLocalViewMode(settings.viewMode)
+      setLocalAspectRatio(settings.aspectRatio)
+    }
+  }, [isControlled, settings.viewMode, settings.aspectRatio])
 
+  // Handler for view mode changes
+  const handleViewModeChange = (mode: ViewMode) => {
+    setLocalViewMode(mode)
+    if (!isStudent && settings.teacherControlEnabled) {
+      // Teacher with control enabled - broadcast to students
+      setRoomSettings({ viewMode: mode })
+    }
+  }
 
-  // Placeholder for TeacherVideo and StudentVideo removal - replaced by VideoConference
+  // Handler for aspect ratio changes
+  const handleAspectRatioChange = (ratio: AspectRatio) => {
+    setLocalAspectRatio(ratio)
+    if (!isStudent && settings.teacherControlEnabled) {
+      // Teacher with control enabled - broadcast to students
+      setRoomSettings({ aspectRatio: ratio })
+    }
+  }
 
+  // Handler for teacher control toggle
+  const handleTeacherControlToggle = (enabled: boolean) => {
+    setRoomSettings({
+      teacherControlEnabled: enabled,
+      viewMode: localViewMode,
+      aspectRatio: localAspectRatio
+    })
+  }
 
   const isMobile = useIsMobile()
   const [showSheetMusic, setShowSheetMusic] = useState(false)
+
+  // Controls are disabled when student is being controlled by teacher
+  const controlsDisabled = isControlled
 
   return (
     <div className="h-full flex flex-col bg-background relative">
@@ -67,67 +97,107 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
         <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-sidebar">
           <span className="text-sm font-medium text-muted-foreground">View</span>
           <div className="flex items-center gap-1">
-            <Button
-              variant={viewMode === "sheet-music" ? "default" : "ghost"}
-              size="sm"
-              className="gap-1.5 text-xs"
-              onClick={() => setViewMode("sheet-music")}
-            >
-              <Music className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sheet Music</span>
-            </Button>
-            <Button
-              variant={viewMode === "dual-widescreen" ? "default" : "ghost"}
-              size="sm"
-              className="gap-1.5 text-xs"
-              onClick={() => setViewMode("dual-widescreen")}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Dual View</span>
-            </Button>
-            <Button
-              variant={viewMode === "picture-in-picture" ? "default" : "ghost"}
-              size="sm"
-              className="gap-1.5 text-xs"
-              onClick={() => setViewMode("picture-in-picture")}
-            >
-              <PictureInPicture2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">PiP</span>
-            </Button>
+            {/* View Mode Buttons */}
+            <div className={`flex items-center gap-1 ${controlsDisabled ? 'opacity-50 pointer-events-none' : ''}`}>
+              <Button
+                variant={effectiveViewMode === "sheet-music" ? "default" : "ghost"}
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => handleViewModeChange("sheet-music")}
+                disabled={controlsDisabled}
+              >
+                <Music className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sheet Music</span>
+              </Button>
+              <Button
+                variant={effectiveViewMode === "dual-widescreen" ? "default" : "ghost"}
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => handleViewModeChange("dual-widescreen")}
+                disabled={controlsDisabled}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Dual View</span>
+              </Button>
+              <Button
+                variant={effectiveViewMode === "picture-in-picture" ? "default" : "ghost"}
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => handleViewModeChange("picture-in-picture")}
+                disabled={controlsDisabled}
+              >
+                <PictureInPicture2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">PiP</span>
+              </Button>
+            </div>
 
             {/* Separator */}
             <div className="w-px h-5 bg-border mx-1" />
 
             {/* Video Aspect Ratio Selector */}
-            <div className="flex items-center gap-1 bg-secondary/50 rounded-md p-0.5">
+            <div className={`flex items-center gap-1 bg-secondary/50 rounded-md p-0.5 ${controlsDisabled ? 'opacity-50 pointer-events-none' : ''}`}>
               <Button
-                variant={videoAspectRatio === "widescreen" ? "default" : "ghost"}
+                variant={effectiveAspectRatio === "widescreen" ? "default" : "ghost"}
                 size="sm"
                 className="text-xs h-7 px-2"
-                onClick={() => setVideoAspectRatio("widescreen")}
+                onClick={() => handleAspectRatioChange("widescreen")}
+                disabled={controlsDisabled}
                 title="Widescreen (16:9)"
               >
                 16:9
               </Button>
               <Button
-                variant={videoAspectRatio === "standard" ? "default" : "ghost"}
+                variant={effectiveAspectRatio === "standard" ? "default" : "ghost"}
                 size="sm"
                 className="text-xs h-7 px-2"
-                onClick={() => setVideoAspectRatio("standard")}
+                onClick={() => handleAspectRatioChange("standard")}
+                disabled={controlsDisabled}
                 title="Standard (4:3)"
               >
                 4:3
               </Button>
               <Button
-                variant={videoAspectRatio === "portrait" ? "default" : "ghost"}
+                variant={effectiveAspectRatio === "portrait" ? "default" : "ghost"}
                 size="sm"
                 className="text-xs h-7 px-2"
-                onClick={() => setVideoAspectRatio("portrait")}
+                onClick={() => handleAspectRatioChange("portrait")}
+                disabled={controlsDisabled}
                 title="Portrait (9:16)"
               >
                 9:16
               </Button>
             </div>
+
+            {/* Teacher Control Toggle - Only for Teacher */}
+            {!isStudent && (
+              <>
+                <div className="w-px h-5 bg-border mx-2" />
+                <div className="flex items-center gap-2 bg-secondary/50 rounded-md px-2 py-1">
+                  {settings.teacherControlEnabled ? (
+                    <Lock className="w-3.5 h-3.5 text-primary" />
+                  ) : (
+                    <Unlock className="w-3.5 h-3.5 text-muted-foreground" />
+                  )}
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">Control</span>
+                  <Switch
+                    checked={settings.teacherControlEnabled}
+                    onCheckedChange={handleTeacherControlToggle}
+                    className="scale-75"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Student Indicator when being controlled */}
+            {isStudent && settings.teacherControlEnabled && (
+              <>
+                <div className="w-px h-5 bg-border mx-2" />
+                <div className="flex items-center gap-1.5 text-xs text-amber-500">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Teacher Control</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -137,7 +207,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
         {/* DESKTOP LAYOUT */}
         {!isMobile && (
           <>
-            {viewMode === "sheet-music" && (
+            {effectiveViewMode === "sheet-music" && (
               <div className="h-full flex flex-col lg:flex-row">
                 <div className="flex-1 lg:w-[70%] p-3 lg:p-4 flex flex-col min-h-0">
                   <div className="flex-1 rounded-xl border-2 border-border bg-card overflow-hidden flex flex-col">
@@ -159,8 +229,6 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        {/* Hide annotation toolbar for students */}
-                        {/* Annotation Toolbar moved inside SheetMusicPanel */}
                         <div className="hidden sm:flex items-center gap-1 lg:gap-2 ml-2">
                           <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground text-xs lg:text-sm px-2">-</Button>
                           <span className="text-xs lg:text-sm text-muted-foreground">100%</span>
@@ -191,8 +259,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                     <VideoPanel
                       studentId={studentId}
                       isStudent={isStudent}
-                      aspectRatio={videoAspectRatio}
-                      onAspectRatioChange={setVideoAspectRatio}
+                      aspectRatio={effectiveAspectRatio as VideoAspectRatio}
+                      onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
                       showOverlay={false}
                       className="h-full w-full"
                     />
@@ -201,15 +269,15 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               </div>
             )}
 
-            {viewMode === "dual-widescreen" && (
+            {effectiveViewMode === "dual-widescreen" && (
               <div className="h-full p-3 lg:p-4 flex flex-col gap-3 lg:gap-4">
                 <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 max-w-5xl mx-auto w-full">
                   <div className="h-full w-full">
                     <VideoPanel
                       studentId={studentId}
                       isStudent={isStudent}
-                      aspectRatio={videoAspectRatio}
-                      onAspectRatioChange={setVideoAspectRatio}
+                      aspectRatio={effectiveAspectRatio as VideoAspectRatio}
+                      onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
                       showOverlay={false}
                       className="h-full w-full"
                     />
@@ -218,15 +286,15 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               </div>
             )}
 
-            {viewMode === "picture-in-picture" && (
+            {effectiveViewMode === "picture-in-picture" && (
               <div className="h-full p-3 lg:p-4 relative">
                 <div className="h-full flex items-center justify-center">
                   <div className="w-full h-full max-w-6xl">
                     <VideoPanel
                       studentId={studentId}
                       isStudent={isStudent}
-                      aspectRatio={videoAspectRatio}
-                      onAspectRatioChange={setVideoAspectRatio}
+                      aspectRatio={effectiveAspectRatio as VideoAspectRatio}
+                      onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
                       showOverlay={false}
                       className="h-full w-full"
                     />
@@ -254,9 +322,9 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 <VideoPanel
                   studentId={studentId}
                   isStudent={isStudent}
-                  aspectRatio={videoAspectRatio}
-                  onAspectRatioChange={setVideoAspectRatio}
-                  showOverlay={true}
+                  aspectRatio={effectiveAspectRatio as VideoAspectRatio}
+                  onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
+                  showOverlay={!controlsDisabled}
                   className="h-full w-full"
                 />
 
@@ -284,6 +352,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 onClick={() => setShowSheetMusic(!showSheetMusic)}
                 size="lg"
                 className="rounded-full shadow-xl font-bold gap-2"
+                disabled={controlsDisabled}
               >
                 {showSheetMusic ? (
                   <>
@@ -296,6 +365,14 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 )}
               </Button>
             </div>
+
+            {/* Teacher Control Indicator on Mobile */}
+            {isStudent && settings.teacherControlEnabled && (
+              <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-amber-500/90 text-white px-2 py-1 rounded-md text-xs z-50">
+                <Lock className="w-3 h-3" />
+                <span>Teacher Control</span>
+              </div>
+            )}
           </div>
         )}
 

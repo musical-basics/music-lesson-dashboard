@@ -18,8 +18,29 @@ export interface ActivePiece {
     difficulty?: string
 }
 
+export type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
+export type AspectRatio = "widescreen" | "standard" | "portrait"
+
+export interface RoomSettings {
+    viewMode: ViewMode
+    aspectRatio: AspectRatio
+    teacherControlEnabled: boolean
+}
+
+export interface RoomState {
+    activePiece: ActivePiece | null
+    settings: RoomSettings
+}
+
+const DEFAULT_SETTINGS: RoomSettings = {
+    viewMode: "sheet-music",
+    aspectRatio: "widescreen",
+    teacherControlEnabled: false
+}
+
 export function useRoomSync(studentId: string, role: 'teacher' | 'student') {
     const [activePiece, setActivePiece] = useState<ActivePiece | null>(null)
+    const [settings, setSettings] = useState<RoomSettings>(DEFAULT_SETTINGS)
     const [isLoading, setIsLoading] = useState(true)
 
     // Debug log on mount
@@ -50,11 +71,17 @@ export function useRoomSync(studentId: string, role: 'teacher' | 'student') {
 
             if (error) {
                 console.log(`📭 No ROOM_STATUS found for ${studentId}:`, error.message)
-            } else if (data?.data?.activePiece) {
-                console.log("🎵 Found active piece:", data.data.activePiece.title)
-                setActivePiece(data.data.activePiece)
+            } else if (data?.data) {
+                if (data.data.activePiece) {
+                    console.log("🎵 Found active piece:", data.data.activePiece.title)
+                    setActivePiece(data.data.activePiece)
+                }
+                if (data.data.settings) {
+                    console.log("⚙️ Found settings:", data.data.settings)
+                    setSettings(prev => ({ ...prev, ...data.data.settings }))
+                }
             } else {
-                console.log("📭 ROOM_STATUS exists but no activePiece")
+                console.log("📭 ROOM_STATUS exists but no data")
             }
 
             setIsLoading(false)
@@ -82,6 +109,10 @@ export function useRoomSync(studentId: string, role: 'teacher' | 'student') {
                             console.log("⚡ Realtime: Switched piece to", newData.activePiece.title)
                             setActivePiece(newData.activePiece)
                         }
+                        if (newData?.settings) {
+                            console.log("⚡ Realtime: Settings updated", newData.settings)
+                            setSettings(prev => ({ ...prev, ...newData.settings }))
+                        }
                     }
                 }
             )
@@ -95,46 +126,60 @@ export function useRoomSync(studentId: string, role: 'teacher' | 'student') {
         }
     }, [studentId])
 
-    // 2. BROADCAST (Teacher Only)
-    const setRoomPiece = useCallback(async (piece: ActivePiece) => {
-        console.log(`🎯 setRoomPiece called: role=${role}, studentId=${studentId}`)
+    // Helper to broadcast room state
+    const broadcastRoomState = useCallback(async (newPiece: ActivePiece | null, newSettings: RoomSettings) => {
+        if (role !== 'teacher') return
 
-        // Update local immediately
-        setActivePiece(piece)
+        console.log("📤 Teacher broadcasting room state:", { piece: newPiece?.title, settings: newSettings })
 
-        if (role === 'teacher') {
-            console.log("📤 Teacher broadcasting piece:", piece.title, "to room:", studentId)
+        // Delete existing row then insert new one
+        await supabase
+            .from('classroom_annotations')
+            .delete()
+            .eq('student_id', studentId)
+            .eq('song_id', 'ROOM_STATUS')
 
-            // First try to delete any existing ROOM_STATUS row
-            const { error: deleteError } = await supabase
-                .from('classroom_annotations')
-                .delete()
-                .eq('student_id', studentId)
-                .eq('song_id', 'ROOM_STATUS')
+        const { error } = await supabase
+            .from('classroom_annotations')
+            .insert({
+                student_id: studentId,
+                song_id: 'ROOM_STATUS',
+                data: { activePiece: newPiece, settings: newSettings }
+            })
 
-            if (deleteError) {
-                console.log("⚠️ Delete error (may be OK if row didn't exist):", deleteError.message)
-            }
-
-            // Then insert the new one
-            const { data, error } = await supabase
-                .from('classroom_annotations')
-                .insert({
-                    student_id: studentId,
-                    song_id: 'ROOM_STATUS',
-                    data: { activePiece: piece }
-                })
-                .select()
-
-            if (error) {
-                console.error("❌ Failed to broadcast piece:", error)
-            } else {
-                console.log("✅ Successfully broadcast piece:", data)
-            }
+        if (error) {
+            console.error("❌ Failed to broadcast room state:", error)
         } else {
-            console.log("👀 Student role - not broadcasting")
+            console.log("✅ Successfully broadcast room state")
         }
     }, [studentId, role])
 
-    return { activePiece, setRoomPiece, isLoading }
+    // 2. BROADCAST PIECE (Teacher Only)
+    const setRoomPiece = useCallback(async (piece: ActivePiece) => {
+        console.log(`🎯 setRoomPiece called: role=${role}, studentId=${studentId}`)
+        setActivePiece(piece)
+
+        if (role === 'teacher') {
+            await broadcastRoomState(piece, settings)
+        }
+    }, [studentId, role, settings, broadcastRoomState])
+
+    // 3. BROADCAST SETTINGS (Teacher Only)
+    const setRoomSettings = useCallback(async (newSettings: Partial<RoomSettings>) => {
+        const updatedSettings = { ...settings, ...newSettings }
+        console.log(`⚙️ setRoomSettings called:`, updatedSettings)
+        setSettings(updatedSettings)
+
+        if (role === 'teacher') {
+            await broadcastRoomState(activePiece, updatedSettings)
+        }
+    }, [role, activePiece, settings, broadcastRoomState])
+
+    return {
+        activePiece,
+        setRoomPiece,
+        settings,
+        setRoomSettings,
+        isLoading
+    }
 }
