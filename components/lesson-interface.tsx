@@ -210,9 +210,12 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true
-      })
+        video: {
+          displaySurface: "browser" // Prefer browser tab
+        },
+        audio: true,
+        preferCurrentTab: true // Auto-select current tab (Chrome 107+)
+      } as any)
 
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' })
 
