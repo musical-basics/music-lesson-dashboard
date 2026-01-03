@@ -114,7 +114,7 @@ export function useLessonState(studentId: string, songId: string) {
             } finally {
                 setIsSaving(false)
             }
-        }, 1000) // 1 second debounce
+        }, 500) // 500ms debounce
     }, [studentId, songId])
 
     return {

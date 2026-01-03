@@ -89,7 +89,7 @@ export function SheetMusicPanel({
         if (scrollTimeout.current) clearTimeout(scrollTimeout.current)
         scrollTimeout.current = setTimeout(() => {
             saveData({ ...data, scrollX: x })
-        }, 500)
+        }, 150)
     }
 
     // ----------------------------------------------------------------
