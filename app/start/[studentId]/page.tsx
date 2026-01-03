@@ -5,8 +5,11 @@ export default async function StartLesson({ params }: { params: Promise<{ studen
     const { studentId } = await params
 
     // 2. Get your Secret Key securely from the Server Environment
-    // (This never exposes the key to the client or the other website)
-    const secret = process.env.TEACHER_SECRET_KEY || "super_secret_piano_master_key_2025"
+    const secret = process.env.TEACHER_SECRET_KEY
+
+    if (!secret) {
+        throw new Error("TEACHER_SECRET_KEY is not configured in environment variables")
+    }
 
     // 3. Construct the Room Details
     const roomName = `lesson-${studentId}`

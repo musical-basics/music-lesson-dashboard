@@ -103,7 +103,7 @@ export default function Dashboard() {
 
     // 3. Launch Lesson
     const launchLesson = (studentId: string) => {
-        const secret = "super_secret_piano_master_key_2025"
+        const secret = localStorage.getItem("teacher_key") || "super_secret_piano_master_key_2025"
         const roomName = `lesson-${studentId}`
 
         // CHANGED: Point to root '/' with view=lesson
@@ -120,6 +120,28 @@ export default function Dashboard() {
 
         navigator.clipboard.writeText(link)
         alert(`✅ Copied link for ${studentId}!\n\nSend this to the student.`)
+    }
+
+    // Authenticate with API
+    const handleLogin = async (pw: string) => {
+        try {
+            const res = await fetch('/api/auth/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: pw })
+            });
+
+            if (res.ok) {
+                localStorage.setItem("teacher_session", "valid");
+                localStorage.setItem("teacher_key", pw); // Store for room launches
+                setIsAuthenticated(true);
+            } else {
+                alert("Incorrect key");
+            }
+        } catch (e) {
+            console.error("Login failed", e);
+            alert("Authentication error");
+        }
     }
 
     // AUTH GATE: Show login screen if not authenticated
@@ -140,25 +162,13 @@ export default function Dashboard() {
                         onChange={(e) => setPassword(e.target.value)}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
-                                if (password === "super_secret_piano_master_key_2025") {
-                                    localStorage.setItem("teacher_session", "valid")
-                                    setIsAuthenticated(true)
-                                } else {
-                                    alert("Incorrect key")
-                                }
+                                handleLogin(password);
                             }
                         }}
                     />
                     <Button
                         className="w-full bg-indigo-600 hover:bg-indigo-700"
-                        onClick={() => {
-                            if (password === "super_secret_piano_master_key_2025") {
-                                localStorage.setItem("teacher_session", "valid")
-                                setIsAuthenticated(true)
-                            } else {
-                                alert("Incorrect key")
-                            }
-                        }}
+                        onClick={() => handleLogin(password)}
                     >
                         Enter Dashboard
                     </Button>
