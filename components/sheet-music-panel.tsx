@@ -12,6 +12,7 @@ interface SheetMusicPanelProps {
     songId: string
     studentId: string
     isStudent?: boolean
+    readOnly?: boolean
 }
 
 type BookmarkData = {
@@ -23,7 +24,8 @@ export function SheetMusicPanel({
     xmlUrl,
     songId,
     studentId,
-    isStudent = false
+    isStudent = false,
+    readOnly = false
 }: SheetMusicPanelProps) {
     // ----------------------------------------------------------------
     // 1. STATE MANAGEMENT
@@ -244,7 +246,7 @@ export function SheetMusicPanel({
                 ref={scrollContainerRef}
                 onWheel={handleWheel}
                 onScroll={handleContainerScroll}
-                className={`flex-1 overflow-x-auto overflow-y-auto relative bg-zinc-900 ${(activeTool !== 'scroll' && activeTool !== null) ? 'touch-none' : ''}`}
+                className={`flex-1 overflow-x-auto overflow-y-auto relative bg-zinc-900 ${(activeTool !== 'scroll' && activeTool !== null && !readOnly) ? 'touch-none' : ''}`}
             >
                 <div className="bg-white" style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
                     <div ref={containerRef} className="absolute inset-0" />
@@ -259,6 +261,7 @@ export function SheetMusicPanel({
                             onSave={handleAnnotationSave}
                             color={penColor}
                             textSize={textSize}
+                            readOnly={readOnly}
                         />
                     )}
                 </div>

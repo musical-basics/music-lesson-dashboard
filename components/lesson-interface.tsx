@@ -337,6 +337,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                     songId={activePiece.id}
                     studentId={studentId || "student-1"}
                     isStudent={isStudent}
+                    readOnly={isControlled}
                   />
                 ) : (
                   <div className="flex items-center justify-center h-full text-zinc-500">

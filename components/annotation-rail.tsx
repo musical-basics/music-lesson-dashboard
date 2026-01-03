@@ -20,12 +20,13 @@ interface AnnotationRailProps {
     onSave: (newData: AnnotationRailData) => void
     color: string
     textSize?: number
+    readOnly?: boolean
 }
 
 const CHUNK_SIZE = 2000;
 
 export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailProps>(
-    ({ totalWidth, height, activeTool, clearTrigger, data, onSave, color, textSize = 20 }, ref) => {
+    ({ totalWidth, height, activeTool, clearTrigger, data, onSave, color, textSize = 20, readOnly = false }, ref) => {
         const chunkCount = Math.ceil(totalWidth / CHUNK_SIZE);
         const chunkRefs = useRef<(AnnotationChunkHandle | null)[]>([]);
 
@@ -98,6 +99,7 @@ export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailPro
                         onSave={(chunkData: any) => handleChunkSave(i, chunkData)}
                         color={color}
                         textSize={textSize}
+                        readOnly={readOnly}
                     />
                 ))}
             </div>
@@ -113,7 +115,7 @@ interface AnnotationChunkHandle {
 }
 
 const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
-    ({ width, height, index, activeTool, clearTrigger, initialData, onSave, color, textSize }, ref) => {
+    ({ width, height, index, activeTool, clearTrigger, initialData, onSave, color, textSize, readOnly }, ref) => {
         const canvasRef = useRef<HTMLCanvasElement>(null)
         const fabricRef = useRef<Canvas | null>(null)
         const isMounted = useRef(true)
@@ -249,6 +251,20 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
             if (!fabricRef.current) return
             const canvas = fabricRef.current
 
+            // [CRITICAL] READ ONLY MODE
+            if (readOnly) {
+                canvas.isDrawingMode = false
+                canvas.selection = false
+                canvas.skipTargetFind = true // Disables ALL object selection/hover
+                canvas.defaultCursor = 'default'
+                canvas.hoverCursor = 'default'
+                canvas.requestRenderAll()
+                return
+            }
+
+            // NORMAL MODE - Re-enable interactions
+            canvas.skipTargetFind = false
+
             if (activeTool === 'pen') {
                 canvas.isDrawingMode = true
                 canvas.selection = false
@@ -312,7 +328,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 canvas.off('mouse:down')
             }
             canvas.requestRenderAll()
-        }, [activeTool, color, onSave, textSize])
+        }, [activeTool, color, onSave, textSize, readOnly])
 
         // 4. VISUAL CLEAR
         useEffect(() => {
