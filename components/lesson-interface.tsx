@@ -34,7 +34,7 @@ import {
   Underline,
   MousePointer2
 } from "lucide-react"
-import { VideoConference, useTracks, ParticipantTile } from "@livekit/components-react"
+import { VideoConference, useTracks, ParticipantTile, useLocalParticipant } from "@livekit/components-react"
 import { Track } from "livekit-client"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { HorizontalMusicContainer, HorizontalMusicContainerHandle } from "@/components/horizontal-music-container"
@@ -126,12 +126,44 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const role = searchParams.get('role')
   const isStudent = role === 'student'
 
+  // LiveKit local participant for camera/mic control
+  const { localParticipant } = useLocalParticipant()
   const [isMuted, setIsMuted] = useState(false)
   const [isVideoOff, setIsVideoOff] = useState(false)
   const [isMusicMode, setIsMusicMode] = useState(true)
   const [isRecording, setIsRecording] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>("sheet-music")
   const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
+
+  // Toggle camera via LiveKit
+  const toggleCamera = async () => {
+    try {
+      const newState = !isVideoOff
+      await localParticipant.setCameraEnabled(!newState)
+      setIsVideoOff(newState)
+    } catch (e) {
+      console.error("Failed to toggle camera:", e)
+    }
+  }
+
+  // Toggle microphone via LiveKit
+  const toggleMic = async () => {
+    try {
+      const newState = !isMuted
+      await localParticipant.setMicrophoneEnabled(!newState)
+      setIsMuted(newState)
+    } catch (e) {
+      console.error("Failed to toggle mic:", e)
+    }
+  }
+
+  // Auto-enable camera and mic on mount
+  useEffect(() => {
+    if (localParticipant) {
+      localParticipant.setCameraEnabled(true)
+      localParticipant.setMicrophoneEnabled(true)
+    }
+  }, [localParticipant])
 
   // Room Sync: Teacher broadcasts, Student receives
   const { activePiece, setRoomPiece, isLoading: isRoomLoading } = useRoomSync(
@@ -1030,7 +1062,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               variant={isMuted ? "destructive" : "secondary"}
               size="icon"
               className="w-10 h-10 lg:w-12 lg:h-12 rounded-full"
-              onClick={() => setIsMuted(!isMuted)}
+              onClick={toggleMic}
             >
               {isMuted ? <MicOff className="w-4 h-4 lg:w-5 lg:h-5" /> : <Mic className="w-4 h-4 lg:w-5 lg:h-5" />}
             </Button>
@@ -1039,7 +1071,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               variant={isVideoOff ? "destructive" : "secondary"}
               size="icon"
               className="w-10 h-10 lg:w-12 lg:h-12 rounded-full"
-              onClick={() => setIsVideoOff(!isVideoOff)}
+              onClick={toggleCamera}
             >
               {isVideoOff ? (
                 <VideoOff className="w-4 h-4 lg:w-5 lg:h-5" />
