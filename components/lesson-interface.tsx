@@ -7,13 +7,6 @@ import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
-  Mic,
-  MicOff,
-  Video,
-  VideoOff,
-  MonitorUp,
-  PhoneOff,
-  Circle,
   Music,
   MessageSquare,
   LayoutGrid,
@@ -32,10 +25,15 @@ import {
   Bold,
   Italic,
   Underline,
-  MousePointer2
+  MousePointer2,
+  Video,
+  VideoOff,
+  Mic,
+  MicOff,
+  Circle,
+  PhoneOff
 } from "lucide-react"
-import { VideoConference, useTracks, ParticipantTile, useLocalParticipant } from "@livekit/components-react"
-import { Track } from "livekit-client"
+import { useLocalParticipant } from "@livekit/components-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { HorizontalMusicContainer, HorizontalMusicContainerHandle } from "@/components/horizontal-music-container"
 import { PieceSelector } from "@/components/piece-selector"
@@ -43,6 +41,7 @@ import { Piece } from "@/types/piece"
 import { useRoomSync, ActivePiece } from "@/hooks/use-room-sync"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Label } from "@/components/ui/label"
+import { VideoPanel, VideoAspectRatio, VerticalVideoStack } from "@/components/video-panel"
 import { supabase } from "@/supabase/client"
 
 // Define Preset Type
@@ -59,74 +58,269 @@ const DEFAULT_PRESETS: TextPreset[] = [
   { id: 'p3', name: 'Teacher Note', fontSize: 28, color: '#f59e0b' }, // Orange large
 ]
 
-// Video aspect ratio options
-type VideoAspectRatio = "widescreen" | "standard" | "portrait"
+const colors = [
+  "#ef4444", // Red
+  "#f97316", // Orange
+  "#eab308", // Yellow
+  "#22c55e", // Green
+  "#3b82f6", // Blue
+  "#a855f7", // Purple
+  "#ffffff", // White
+  "#000000", // Black
+]
 
-// Custom component that forces vertical video stacking
-function VerticalVideoStack({ aspectRatio = "standard" }: { aspectRatio?: VideoAspectRatio }) {
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { onlySubscribed: false }
-  );
-
-  // Get styles for the video container based on aspect ratio
-  const getContainerStyle = (): React.CSSProperties => {
-    switch (aspectRatio) {
-      case "widescreen":
-        return {
-          aspectRatio: "16/9",
-          width: "100%",
-          maxHeight: "100%",
-          margin: "auto",
-        }
-      case "portrait":
-        return {
-          aspectRatio: "9/16",
-          height: "100%",
-          maxWidth: "100%",
-          margin: "auto",
-        }
-      case "standard":
-      default:
-        return {
-          aspectRatio: "4/3",
-          width: "100%",
-          maxHeight: "100%",
-          margin: "auto",
-        }
-    }
-  }
-
-  // CSS class that will style the video element inside ParticipantTile
-  const videoStyleClass = aspectRatio === "widescreen"
-    ? "video-aspect-contain"
-    : "video-aspect-cover"
-
-  return (
-    <div className="flex flex-col h-full w-full bg-black rounded-lg overflow-hidden items-center justify-center">
-      {tracks.map((track) => (
-        <div
-          key={track.participant.identity}
-          className={`relative overflow-hidden ${videoStyleClass}`}
-          style={getContainerStyle()}
-        >
-          <ParticipantTile
-            trackRef={track}
-            className="w-full h-full"
-          />
-        </div>
-      ))}
-      {tracks.length === 0 && (
-        <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
-          Waiting for video...
-        </div>
-      )}
-    </div>
-  );
+interface AnnotationToolbarProps {
+  activeTool: 'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | null
+  setActiveTool: (tool: 'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | null) => void
+  textSize: number
+  setTextSize: (size: number) => void
+  handleTriggerText: () => void
+  handleTextStyleChange: (style: any) => void
+  penColor: string
+  setPenColor: (color: string) => void
+  undo: () => void
+  redo: () => void
+  clearAnnotations: () => void
+  saveAnnotations: () => void
+  isSaved: boolean
+  canUndo: boolean
+  canRedo: boolean
 }
+
+const AnnotationToolbar = ({
+  activeTool,
+  setActiveTool,
+  textSize,
+  setTextSize,
+  handleTriggerText,
+  handleTextStyleChange,
+  penColor,
+  setPenColor,
+  undo,
+  redo,
+  clearAnnotations,
+  saveAnnotations,
+  isSaved,
+  canUndo,
+  canRedo
+}: AnnotationToolbarProps) => (
+  <div className="flex items-center gap-1 lg:gap-2 px-2 py-1.5 bg-card/90 backdrop-blur-sm rounded-lg border border-border shadow-lg">
+    {/* Tool buttons */}
+    <Button
+      variant={activeTool === "select" ? "default" : "ghost"}
+      size="sm"
+      className="w-8 h-8 p-0"
+      onClick={() => setActiveTool(activeTool === "select" ? null : "select")}
+      title="Select"
+    >
+      <MousePointer2 className="w-4 h-4" />
+    </Button>
+    <Button
+      variant={activeTool === "pen" ? "default" : "ghost"}
+      size="sm"
+      className="w-8 h-8 p-0"
+      onClick={() => setActiveTool(activeTool === "pen" ? null : "pen")}
+      title="Pen"
+    >
+      <Pencil className="w-4 h-4" />
+    </Button>
+    <Button
+      variant={activeTool === "highlighter" ? "default" : "ghost"}
+      size="sm"
+      className="w-8 h-8 p-0"
+      onClick={() => setActiveTool(activeTool === "highlighter" ? null : "highlighter")}
+      title="Highlighter"
+    >
+      <Highlighter className="w-4 h-4" />
+    </Button>
+    <Popover>
+      <div className="flex items-center bg-zinc-800/50 rounded-md border border-zinc-700 mx-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-8 h-8 p-0 rounded-r-none"
+          onClick={handleTriggerText}
+          title="Add Text"
+        >
+          <Type className="w-4 h-4" />
+        </Button>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="sm" className="w-6 h-8 p-0 rounded-l-none border-l border-zinc-700 hover:bg-zinc-700">
+            <Settings2 className="w-3 h-3" />
+          </Button>
+        </PopoverTrigger>
+      </div>
+      <PopoverContent className="w-64 bg-zinc-900 border-zinc-800 p-4 space-y-4">
+        <div className="space-y-2">
+          <Label className="text-xs text-zinc-400">Text Size: {textSize}px</Label>
+          <div className="flex items-center gap-3">
+            <span className="text-xs">A</span>
+            <input
+              type="range"
+              min="12"
+              max="72"
+              value={textSize}
+              onChange={(e) => {
+                const size = Number(e.target.value)
+                setTextSize(size)
+                handleTextStyleChange({ fontSize: size })
+              }}
+              className="flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
+            />
+            <span className="text-lg">A</span>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs text-zinc-400">Style</Label>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+              onClick={() => handleTextStyleChange({ fontWeight: 'bold' })}
+            >
+              <Bold className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+              onClick={() => handleTextStyleChange({ fontStyle: 'italic' })}
+            >
+              <Italic className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+              onClick={() => handleTextStyleChange({ underline: true })}
+            >
+              <Underline className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-red-400"
+              onClick={() => handleTextStyleChange({ fill: null })} // Remove? No, delete
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs text-zinc-400">Presets</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {DEFAULT_PRESETS.map((preset) => (
+              <Button
+                key={preset.id}
+                variant="outline"
+                size="sm"
+                className="justify-start h-auto py-1 px-2 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+                onClick={() => {
+                  setTextSize(preset.fontSize)
+                  setPenColor(preset.color)
+                  handleTextStyleChange({ fontSize: preset.fontSize, fill: preset.color })
+                }}
+              >
+                <div className="flex flex-col items-start gap-0.5">
+                  <span className="text-xs font-medium">{preset.name}</span>
+                  <div className="flex items-center gap-1.5 opacity-70">
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: preset.color }}
+                    />
+                    <span className="text-[10px]">{preset.fontSize}px</span>
+                  </div>
+                </div>
+              </Button>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-xs text-zinc-400 hover:text-zinc-200 border border-dashed border-zinc-700 hover:border-zinc-500"
+            >
+              <Plus className="w-3 h-3 mr-1" /> Save Current Style
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+    <Button
+      variant={activeTool === "eraser" ? "default" : "ghost"}
+      size="sm"
+      className="w-8 h-8 p-0"
+      onClick={() => setActiveTool(activeTool === "eraser" ? null : "eraser")}
+      title="Eraser"
+    >
+      <Eraser className="w-4 h-4" />
+    </Button>
+
+    <div className="w-px h-6 bg-border mx-1" />
+
+    {/* Color picker */}
+    <div className="flex items-center gap-1">
+      {colors.map((c) => (
+        <button
+          key={c}
+          className={`w-5 h-5 rounded-full border border-border focus:outline-none focus:ring-2 focus:ring-ring transition-transform hover:scale-110 ${penColor === c ? "ring-2 ring-ring scale-110" : ""}`}
+          style={{ backgroundColor: c }}
+          onClick={() => {
+            setPenColor(c)
+            handleTextStyleChange({ fill: c })
+          }}
+          title={c}
+        />
+      ))}
+    </div>
+
+    <div className="w-px h-6 bg-border mx-1" />
+
+    <div className="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-8 h-8 p-0"
+        onClick={undo}
+        disabled={!canUndo}
+        title="Undo"
+      >
+        <Undo2 className="w-4 h-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-8 h-8 p-0"
+        onClick={redo}
+        disabled={!canRedo}
+        title="Redo"
+      >
+        <Redo2 className="w-4 h-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-8 h-8 p-0 text-destructive hover:bg-destructive/10"
+        onClick={clearAnnotations}
+        title="Clear All"
+      >
+        <Trash2 className="w-4 h-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={`w-8 h-8 p-0 ${isSaved ? "text-green-500" : ""}`}
+        onClick={saveAnnotations}
+        title={isSaved ? "Annotations saved" : "Save annotations"}
+      >
+        <Save className="w-4 h-4" />
+      </Button>
+    </div>
+  </div>
+)
+
+/* VerticalVideoStack and VideoAspectRatio are now imported from video-panel.tsx */
 
 type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
 type AnnotationTool = "pen" | "highlighter" | "text" | "eraser" | "select" | null
@@ -514,6 +708,27 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
     }
   }
 
+  /* Wrapper for Toolbar Undo (Delegate to MusicContainer if available) */
+  const handleToolbarUndo = () => {
+    if (musicContainerRef.current) {
+      musicContainerRef.current.undo()
+    } else {
+      undo()
+    }
+  }
+
+  const handleToolbarRedo = () => {
+    if (musicContainerRef.current) {
+      musicContainerRef.current.redo()
+    } else {
+      redo()
+    }
+  }
+
+  const handleSetActiveTool = (tool: any) => {
+    setActiveTool(tool === 'scroll' ? null : tool)
+  }
+
   const clearAll = () => {
     saveToHistory([], [])
     setStrokes([])
@@ -664,216 +879,6 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   // Placeholder for TeacherVideo and StudentVideo removal - replaced by VideoConference
 
 
-  const AnnotationToolbar = () => (
-    <div className="flex items-center gap-1 lg:gap-2 px-2 py-1.5 bg-card/90 backdrop-blur-sm rounded-lg border border-border shadow-lg">
-      {/* Tool buttons */}
-      <Button
-        variant={activeTool === "select" ? "default" : "ghost"}
-        size="sm"
-        className="w-8 h-8 p-0"
-        onClick={() => setActiveTool(activeTool === "select" ? null : "select")}
-        title="Select"
-      >
-        <MousePointer2 className="w-4 h-4" />
-      </Button>
-      <Button
-        variant={activeTool === "pen" ? "default" : "ghost"}
-        size="sm"
-        className="w-8 h-8 p-0"
-        onClick={() => setActiveTool(activeTool === "pen" ? null : "pen")}
-        title="Pen"
-      >
-        <Pencil className="w-4 h-4" />
-      </Button>
-      <Button
-        variant={activeTool === "highlighter" ? "default" : "ghost"}
-        size="sm"
-        className="w-8 h-8 p-0"
-        onClick={() => setActiveTool(activeTool === "highlighter" ? null : "highlighter")}
-        title="Highlighter"
-      >
-        <Highlighter className="w-4 h-4" />
-      </Button>
-      <Popover>
-        <div className="flex items-center bg-zinc-800/50 rounded-md border border-zinc-700 mx-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-8 h-8 p-0 rounded-r-none"
-            onClick={handleTriggerText}
-            title="Add Text"
-          >
-            <Type className="w-4 h-4" />
-          </Button>
-          <PopoverTrigger asChild>
-            <Button variant="ghost" size="sm" className="w-6 h-8 p-0 rounded-l-none border-l border-zinc-700 hover:bg-zinc-700">
-              <Settings2 className="w-3 h-3" />
-            </Button>
-          </PopoverTrigger>
-        </div>
-        <PopoverContent className="w-64 bg-zinc-900 border-zinc-800 p-4 space-y-4">
-          <div className="space-y-2">
-            <Label className="text-xs text-zinc-400">Text Size: {textSize}px</Label>
-            <div className="flex items-center gap-3">
-              <span className="text-xs">A</span>
-              <input
-                type="range"
-                min="12"
-                max="72"
-                value={textSize}
-                onChange={(e) => {
-                  const size = Number(e.target.value)
-                  setTextSize(size)
-                  handleTextStyleChange({ fontSize: size })
-                }}
-                className="flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
-              />
-              <span className="text-lg">A</span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs text-zinc-400">Style</Label>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
-                onClick={() => handleTextStyleChange({ fontWeight: 'bold' })}
-              >
-                <Bold className="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
-                onClick={() => handleTextStyleChange({ fontStyle: 'italic' })}
-              >
-                <Italic className="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0 border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
-                onClick={() => handleTextStyleChange({ underline: true })}
-              >
-                <Underline className="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0 border-zinc-700 bg-red-900/20 hover:bg-red-900/40 text-red-400"
-                onClick={handleTextDelete}
-                title="Delete Object"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-              <select
-                className="h-8 text-xs bg-zinc-800 border border-zinc-700 rounded px-2 flex-1 text-zinc-300"
-                onChange={(e) => handleTextStyleChange({ fontFamily: e.target.value })}
-              >
-                <option value="Arial">Arial</option>
-                <option value="Times New Roman">Times</option>
-                <option value="Courier New">Courier</option>
-                <option value="Georgia">Georgia</option>
-                <option value="Inter">Inter</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs text-zinc-400">Presets</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {presets.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => applyPreset(p.id)}
-                  className={`text-xs px-2 py-1.5 rounded border text-left truncate transition-colors ${activePresetId === p.id ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300'}`}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-            <div className="pt-2 border-t border-zinc-800">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-xs h-7 border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
-                onClick={handleSaveCurrentStyle}
-              >
-                <Plus className="w-3 h-3 mr-2" /> Save Current Style
-              </Button>
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-      <Button
-        variant={activeTool === "eraser" ? "default" : "ghost"}
-        size="sm"
-        className="w-8 h-8 p-0"
-        onClick={() => setActiveTool(activeTool === "eraser" ? null : "eraser")}
-        title="Eraser"
-      >
-        <Eraser className="w-4 h-4" />
-      </Button>
-
-      <div className="w-px h-6 bg-border mx-1" />
-
-      {/* Force re-read */}
-      <div className="flex items-center gap-1">
-        {colors.map((color) => (
-          <button
-            key={color}
-            className={`w-5 h-5 rounded-full border-2 transition-transform ${penColor === color ? "border-foreground scale-110" : "border-transparent"
-              }`}
-            style={{ backgroundColor: color }}
-            onClick={() => {
-              setPenColor(color)
-              handleTextStyleChange({ fill: color })
-            }}
-          />
-        ))}
-      </div>
-
-      <div className="w-px h-6 bg-border mx-1" />
-
-      {/* Undo/Redo/Clear */}
-      <Button variant="ghost" size="sm" className="w-8 h-8 p-0" onClick={() => musicContainerRef.current?.undo()} title="Undo">
-        <Undo2 className="w-4 h-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="w-8 h-8 p-0"
-        onClick={() => musicContainerRef.current?.redo()}
-        title="Redo"
-      >
-        <Redo2 className="w-4 h-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="w-8 h-8 p-0 text-destructive hover:text-destructive"
-        onClick={clearAll}
-        title="Clear All"
-      >
-        <Trash2 className="w-4 h-4" />
-      </Button>
-
-      <div className="w-px h-6 bg-border mx-1" />
-
-      <Button
-        variant={isSaved ? "ghost" : "default"}
-        size="sm"
-        className={`w-8 h-8 p-0 ${!isSaved ? "bg-primary text-primary-foreground" : ""}`}
-        onClick={saveAnnotations}
-        title={isSaved ? "Annotations saved" : "Save annotations"}
-      >
-        <Save className="w-4 h-4" />
-      </Button>
-    </div>
-  )
-
   const isMobile = useIsMobile()
   const [showSheetMusic, setShowSheetMusic] = useState(false)
 
@@ -977,7 +982,25 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       </div>
                       <div className="flex items-center gap-2">
                         {/* Hide annotation toolbar for students */}
-                        {!isStudent && <AnnotationToolbar />}
+                        {!isStudent && (
+                          <AnnotationToolbar
+                            activeTool={activeTool}
+                            setActiveTool={handleSetActiveTool}
+                            textSize={textSize}
+                            setTextSize={setTextSize}
+                            handleTriggerText={handleTriggerText}
+                            handleTextStyleChange={handleTextStyleChange}
+                            penColor={penColor}
+                            setPenColor={setPenColor}
+                            undo={handleToolbarUndo}
+                            redo={handleToolbarRedo}
+                            clearAnnotations={clearAll}
+                            saveAnnotations={saveAnnotations}
+                            isSaved={isSaved}
+                            canUndo={true}
+                            canRedo={true}
+                          />
+                        )}
                         <div className="hidden sm:flex items-center gap-1 lg:gap-2 ml-2">
                           <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground text-xs lg:text-sm px-2">-</Button>
                           <span className="text-xs lg:text-sm text-muted-foreground">100%</span>
@@ -1088,7 +1111,25 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 <div className="px-3 py-2 border-b border-border bg-secondary/50 flex items-center justify-between">
                   <span className="font-medium text-sm">Sheet Music</span>
                   {/* Hide annotation toolbar for students */}
-                  {!isStudent && <AnnotationToolbar />}
+                  {!isStudent && (
+                    <AnnotationToolbar
+                      activeTool={activeTool}
+                      setActiveTool={handleSetActiveTool}
+                      textSize={textSize}
+                      setTextSize={setTextSize}
+                      handleTriggerText={handleTriggerText}
+                      handleTextStyleChange={handleTextStyleChange}
+                      penColor={penColor}
+                      setPenColor={setPenColor}
+                      undo={handleToolbarUndo}
+                      redo={handleToolbarRedo}
+                      clearAnnotations={clearAll} // Use clearAll defined in LessonInterface
+                      saveAnnotations={saveAnnotations}
+                      isSaved={isSaved}
+                      canUndo={true} // Always enable (MusicContainer doesn't expose state)
+                      canRedo={true}
+                    />
+                  )}
                 </div>
                 <div
                   ref={containerRef}
@@ -1199,21 +1240,26 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
           {/* Right Controls */}
           <div className="flex items-center gap-2 lg:gap-3">
-            {uploadStatus ? (
-              <div className="flex items-center gap-2 text-xs text-yellow-500 bg-yellow-900/20 px-3 py-1.5 rounded-full border border-yellow-500/30">
-                <Circle className="w-3 h-3 animate-spin" />
-                {uploadStatus}
-              </div>
-            ) : (
-              <Button
-                variant={isRecording ? "destructive" : "secondary"}
-                className={`gap-2 text-xs lg:text-sm ${isRecording ? "animate-pulse" : ""}`}
-                size="sm"
-                onClick={handleRecordClick}
-              >
-                <Circle className={`w-3 h-3 lg:w-4 lg:h-4 ${isRecording ? "fill-current" : ""}`} />
-                <span className="hidden sm:inline">{isRecording ? "Stop" : "Record"}</span>
-              </Button>
+            {/* Recording Controls - Teacher only */}
+            {!isStudent && (
+              <>
+                {uploadStatus ? (
+                  <div className="flex items-center gap-2 text-xs text-yellow-500 bg-yellow-900/20 px-3 py-1.5 rounded-full border border-yellow-500/30">
+                    <Circle className="w-3 h-3 animate-spin" />
+                    {uploadStatus}
+                  </div>
+                ) : (
+                  <Button
+                    variant={isRecording ? "destructive" : "secondary"}
+                    className={`gap-2 text-xs lg:text-sm ${isRecording ? "animate-pulse" : ""}`}
+                    size="sm"
+                    onClick={handleRecordClick}
+                  >
+                    <Circle className={`w-3 h-3 lg:w-4 lg:h-4 ${isRecording ? "fill-current" : ""}`} />
+                    <span className="hidden sm:inline">{isRecording ? "Stop" : "Record"}</span>
+                  </Button>
+                )}
+              </>
             )}
 
             <Button variant="destructive" size="icon" className="w-10 h-10 lg:w-12 lg:h-12 rounded-full">
