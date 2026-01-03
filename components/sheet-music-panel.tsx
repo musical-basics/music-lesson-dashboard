@@ -118,9 +118,9 @@ export function SheetMusicPanel({
         setActiveTool('select') // Switch to select after adding text? Or stay in text mode?
     }
 
-    const handleTextStyleChange = (style: any) => {
+    const handleTextStyleChange = (style: any, skipSave = false) => {
         if (railRef.current) {
-            railRef.current.updateActiveObject(style)
+            railRef.current.updateActiveObject(style, skipSave)
         }
     }
 

@@ -6,7 +6,7 @@ export type AnnotationRailData = Record<string, any>
 
 export interface AnnotationRailHandle {
     addText: (globalX: number, y: number, style: { color: string, fontSize: number }) => void
-    updateActiveObject: (style: any) => void
+    updateActiveObject: (style: any, skipSave?: boolean) => void
     deleteActiveObject: () => void
 }
 
@@ -46,9 +46,9 @@ export const AnnotationRail = forwardRef<AnnotationRailHandle, AnnotationRailPro
                     targetChunk.addText(localX, y, style)
                 }
             },
-            updateActiveObject: (style) => {
+            updateActiveObject: (style, skipSave = false) => {
                 // Broadcast style update to all chunks (only the one with active obj will react)
-                chunkRefs.current.forEach(chunk => chunk?.updateActiveObject(style))
+                chunkRefs.current.forEach(chunk => chunk?.updateActiveObject(style, skipSave))
             },
             deleteActiveObject: () => {
                 chunkRefs.current.forEach(chunk => chunk?.deleteActiveObject())
@@ -107,7 +107,7 @@ AnnotationRail.displayName = "AnnotationRail"
 
 interface AnnotationChunkHandle {
     addText: (x: number, y: number, style: { color: string, fontSize: number }) => void
-    updateActiveObject: (style: any) => void
+    updateActiveObject: (style: any, skipSave?: boolean) => void
     deleteActiveObject: () => void
 }
 
@@ -141,7 +141,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 canvas.requestRenderAll()
                 onSave(canvas.toJSON())
             },
-            updateActiveObject: (style) => {
+            updateActiveObject: (style, skipSave = false) => {
                 const canvas = fabricRef.current
                 if (!canvas) return
 
@@ -149,7 +149,10 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
                 if (activeObj) {
                     activeObj.set(style)
                     canvas.requestRenderAll()
-                    onSave(canvas.toJSON())
+                    // Only save if skipSave is FALSE
+                    if (!skipSave) {
+                        onSave(canvas.toJSON())
+                    }
                 }
             },
             deleteActiveObject: () => {

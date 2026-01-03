@@ -48,7 +48,7 @@ export interface AnnotationToolbarProps {
     textSize: number
     setTextSize: (size: number) => void
     handleTriggerText: () => void
-    handleTextStyleChange: (style: any) => void
+    handleTextStyleChange: (style: any, skipSave?: boolean) => void
     penColor: string
     setPenColor: (color: string) => void
     undo: () => void
@@ -136,7 +136,12 @@ export const AnnotationToolbar = ({
                             onChange={(e) => {
                                 const size = Number(e.target.value)
                                 setTextSize(size)
-                                handleTextStyleChange({ fontSize: size })
+                                // Visual update only, skip saving to history
+                                handleTextStyleChange({ fontSize: size }, true)
+                            }}
+                            onPointerUp={() => {
+                                // Commit the change when user releases
+                                handleTextStyleChange({ fontSize: textSize }, false)
                             }}
                             className="flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
                         />
