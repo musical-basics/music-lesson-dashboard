@@ -4,6 +4,7 @@ import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { AnnotationRail, AnnotationRailHandle } from './annotation-rail'
 import { Pencil, Hand, Loader2, Eraser, Trash2, Cloud } from 'lucide-react'
 import { useLessonState } from '@/hooks/use-lesson-state'
+import { useAnnotationHistory } from '@/hooks/use-annotation-history'
 
 export interface HorizontalMusicContainerHandle {
     undo: () => void;
@@ -48,69 +49,19 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
         const [clearTrigger, setClearTrigger] = useState(0)
         const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
 
-        const { data, saveData, isLoaded: isStateLoaded } = useLessonState(studentId, songId)
+        const { data, undo, redo, pushToHistory, saveData, isLoaded: isStateLoaded } = useAnnotationHistory(studentId, songId)
 
         const dataRef = useRef(data)
         useEffect(() => { dataRef.current = data }, [data])
 
-        // ----------------------------------------------------------------
-        // 1. ROBUST HISTORY SYSTEM
-        // ----------------------------------------------------------------
-        const historyRef = useRef<any[]>([])
-        const historyIndexRef = useRef<number>(-1)
-
-        // Flag to prevent history updates during undo/redo
-        const isUndoingRef = useRef(false)
-
-        // Initialize History
-        useEffect(() => {
-            if (isStateLoaded && historyRef.current.length === 0 && data) {
-                historyRef.current = [data]
-                historyIndexRef.current = 0
-                console.log("📚 History initialized with", historyRef.current.length, "items")
-            }
-        }, [isStateLoaded, data])
-
         useImperativeHandle(ref, () => ({
             undo: () => {
-                if (historyIndexRef.current > 0) {
-                    // Set flag to prevent handleAnnotationSave from adding to history
-                    isUndoingRef.current = true
-
-                    historyIndexRef.current -= 1
-                    const previousState = historyRef.current[historyIndexRef.current]
-                    console.log("↺ Undo to step", historyIndexRef.current, "of", historyRef.current.length - 1)
-
-                    saveData({
-                        ...previousState,
-                        scrollX: dataRef.current?.scrollX || 0
-                    })
-
-                    // Reset flag after a short delay
-                    setTimeout(() => { isUndoingRef.current = false }, 500)
-                } else {
-                    console.log("↺ Cannot undo - already at oldest state")
-                }
+                console.log("↺ Triggering Hook Undo")
+                undo()
             },
             redo: () => {
-                if (historyIndexRef.current < historyRef.current.length - 1) {
-                    // Set flag to prevent handleAnnotationSave from adding to history
-                    isUndoingRef.current = true
-
-                    historyIndexRef.current += 1
-                    const nextState = historyRef.current[historyIndexRef.current]
-                    console.log("↻ Redo to step", historyIndexRef.current, "of", historyRef.current.length - 1)
-
-                    saveData({
-                        ...nextState,
-                        scrollX: dataRef.current?.scrollX || 0
-                    })
-
-                    // Reset flag after a short delay
-                    setTimeout(() => { isUndoingRef.current = false }, 500)
-                } else {
-                    console.log("↻ Cannot redo - already at newest state")
-                }
+                console.log("↻ Triggering Hook Redo")
+                redo()
             },
             addText: (style: { color: string, fontSize: number }) => {
                 if (!scrollContainerRef.current || !railRef.current) return
@@ -139,43 +90,18 @@ export const HorizontalMusicContainer = forwardRef<HorizontalMusicContainerHandl
         // ----------------------------------------------------------------
         // 2. SAVE HANDLERS
         // ----------------------------------------------------------------
+        // ----------------------------------------------------------------
+        // 2. SAVE HANDLERS
+        // ----------------------------------------------------------------
         const handleAnnotationSave = (newData: any) => {
-            // Skip if we're in the middle of an undo/redo
-            if (isUndoingRef.current) {
-                console.log("🚫 Skipping history update (undo/redo in progress)")
-                return
-            }
-
-            // 1. Save to DB (UI Update)
+            // 1. Construct Payload
             const payload = {
                 ...newData,
                 scrollX: dataRef.current?.scrollX || 0
             }
-            saveData(payload)
 
-            // 2. Add to History
-            const currentIndex = historyIndexRef.current
-            const currentTip = historyRef.current[currentIndex]
-
-            // Check if this is actually new content
-            const newDataStr = JSON.stringify(newData)
-            const currentTipStr = JSON.stringify(currentTip)
-
-            if (newDataStr !== currentTipStr) {
-                // Slice history if we undid and are now branching off
-                const newHistory = historyRef.current.slice(0, currentIndex + 1)
-                newHistory.push(newData)
-
-                // Limit memory to 20 steps
-                if (newHistory.length > 20) {
-                    newHistory.shift()
-                }
-
-                historyRef.current = newHistory
-                historyIndexRef.current = newHistory.length - 1
-
-                console.log("📝 History updated: now at step", historyIndexRef.current, "of", newHistory.length - 1)
-            }
+            // 2. Push to History (Hook handles persistence)
+            pushToHistory(payload)
         }
 
         // ----------------------------------------------------------------
