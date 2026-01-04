@@ -339,7 +339,7 @@ const AnnotationChunk = forwardRef<AnnotationChunkHandle, any>(
             }
         }, [clearTrigger])
 
-        const pointerEvents = activeTool === 'scroll' ? 'none' : 'auto'
+        const pointerEvents = (activeTool === 'scroll' || activeTool === 'nudge') ? 'none' : 'auto'
 
         return (
             <div style={{ width, height, pointerEvents: pointerEvents as any }}>
