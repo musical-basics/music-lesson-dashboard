@@ -1,5 +1,5 @@
--- Create nudge_offsets table for storing post-render SVG positioning
-CREATE TABLE IF NOT EXISTS nudge_offsets (
+-- Create classroom_nudge_offsets table for storing post-render SVG positioning
+CREATE TABLE IF NOT EXISTS classroom_nudge_offsets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     song_id UUID NOT NULL REFERENCES pieces(id) ON DELETE CASCADE,
     element_selector TEXT NOT NULL,
@@ -11,4 +11,4 @@ CREATE TABLE IF NOT EXISTS nudge_offsets (
 );
 
 -- Index for fast lookups by song
-CREATE INDEX IF NOT EXISTS idx_nudge_offsets_song_id ON nudge_offsets(song_id);
+CREATE INDEX IF NOT EXISTS idx_classroom_nudge_offsets_song_id ON classroom_nudge_offsets(song_id);

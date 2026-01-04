@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { data, error } = await supabase
-        .from('nudge_offsets')
+        .from('classroom_nudge_offsets')
         .select('element_selector, offset_x, offset_y')
         .eq('song_id', songId)
 
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     // Upsert the offset
     const { error } = await supabase
-        .from('nudge_offsets')
+        .from('classroom_nudge_offsets')
         .upsert({
             song_id: songId,
             element_selector: selector,
