@@ -25,22 +25,28 @@ export function useAnnotationHistory(
     const [canUndo, setCanUndo] = useState(false)
     const [canRedo, setCanRedo] = useState(false)
 
+    // Reset history when studentId or songId changes
+    useEffect(() => {
+        console.log("🔄 History Hook: Resetting for new song/student", { studentId, songId })
+        historyRef.current = []
+        historyIndexRef.current = -1
+        setCurrentData({})
+        setCanUndo(false)
+        setCanRedo(false)
+    }, [studentId, songId])
+
     // Sync Cloud Data to Local (Continuous)
     useEffect(() => {
         if (isLoaded && cloudData) {
-            // 1. Initialize History if empty
+            console.log("📥 History Hook: Syncing from Cloud", Object.keys(cloudData).length, "keys")
+            setCurrentData(cloudData)
+
+            // Initialize history if empty
             if (historyRef.current.length === 0) {
-                console.log("📥 History Hook: Initializing from Cloud", Object.keys(cloudData).length, "keys")
-                setCurrentData(cloudData)
                 historyRef.current = [{ data: cloudData, timestamp: Date.now() }]
                 historyIndexRef.current = 0
                 setCanUndo(false)
                 setCanRedo(false)
-            }
-            // 2. Continually sync remote changes (e.g. scroll updates from teacher)
-            // useLessonState already filters out our own "echo" updates, so this is safe.
-            else {
-                setCurrentData(cloudData)
             }
         }
     }, [isLoaded, cloudData])
