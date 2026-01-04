@@ -6,8 +6,8 @@ import { AnnotationToolbar, TextPreset, DEFAULT_PRESETS } from './annotation-too
 import { Loader2, Cloud } from 'lucide-react'
 import { useAnnotationHistory } from '@/hooks/use-annotation-history'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { useXmlNudge } from "@/hooks/use-xml-nudge"
-import { MeasureInspector } from "@/components/measure-inspector"
+import { useSvgNudge } from "@/hooks/use-svg-nudge"
+import { SvgMeasureInspector } from "@/components/svg-measure-inspector"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
 
@@ -47,7 +47,9 @@ export function SheetMusicPanel({
 
     // Nudge & Inspector State
     const [selectedMeasure, setSelectedMeasure] = useState<number | null>(null)
-    const { xmlString, setXmlString, updateElementPosition } = useXmlNudge("")
+    const [svgElements, setSvgElements] = useState<{ selector: string; text: string }[]>([])
+    const [xmlContent, setXmlContent] = useState<string>("")
+    const { offsets, applyOffsetsToSvg, updateOffset, saveOffsets, getElementsInMeasure } = useSvgNudge(songId)
 
     const isMobile = useIsMobile()
 
@@ -170,10 +172,10 @@ export function SheetMusicPanel({
         fetch(xmlUrl)
             .then(r => r.text())
             .then(text => {
-                setXmlString(text)
+                setXmlContent(text)
             })
             .catch(err => console.error("Failed to fetch XML:", err))
-    }, [xmlUrl, setXmlString])
+    }, [xmlUrl])
 
     // Initialize OSMD (Once) and Handle Updates
     useEffect(() => {
@@ -183,8 +185,8 @@ export function SheetMusicPanel({
         // Only reset if we are purely switching songs, but here we want to persist the instance if possible?
         // Actually, for simplicity, let's keep the single effect but rely on xmlString
 
-        // If xmlString is empty, don't do anything yet
-        if (!xmlString) return
+        // If xmlContent is empty, don't do anything yet
+        if (!xmlContent) return
 
         setIsLoaded(false)
         setBookmarks([])
@@ -226,7 +228,7 @@ export function SheetMusicPanel({
                 const osmdInstance = osmdRef.current
                 if (!osmdInstance) return
 
-                await osmdInstance.load(xmlString)
+                await osmdInstance.load(xmlContent)
                 if (isCancelled) return
 
                 osmdInstance.render()
@@ -273,7 +275,7 @@ export function SheetMusicPanel({
             isCancelled = true
         }
 
-    }, [xmlString]) // Re-run when xmlString changes
+    }, [xmlContent]) // Re-run when xmlContent changes
 
     // Cleanup on unmount (separate effect to avoid clearing on nudge)
     useEffect(() => {
@@ -284,6 +286,13 @@ export function SheetMusicPanel({
             }
         }
     }, [])
+
+    // Apply SVG nudge offsets after render and when offsets change
+    useEffect(() => {
+        if (isLoaded && containerRef.current) {
+            applyOffsetsToSvg(containerRef.current)
+        }
+    }, [isLoaded, offsets, applyOffsetsToSvg])
 
     // Click Listener for Measure Selection
     useEffect(() => {
@@ -343,7 +352,11 @@ export function SheetMusicPanel({
 
                 if (foundMeasureNumber !== null) {
                     setSelectedMeasure(foundMeasureNumber)
-                    toast({ title: `Selected Measure ${foundMeasureNumber}` }) // Feedback
+                    toast({ title: `Selected Measure ${foundMeasureNumber}` })
+
+                    // Populate svgElements with all text elements from the SVG
+                    const elements = getElementsInMeasure(container, foundMeasureNumber)
+                    setSvgElements(elements)
                 }
             } catch (err) { console.warn("Measure hit test failed:", err) }
         }
@@ -351,39 +364,7 @@ export function SheetMusicPanel({
         // Container has the SVG.
         container.addEventListener('click', handleClick)
         return () => container.removeEventListener('click', handleClick)
-    }, [isStudent, isLoaded, activeTool]) // Re-bind if activeTool changes
-
-    // Handle Save
-    const handleSaveDraft = async () => {
-        if (!songId) return
-
-        try {
-            const blob = new Blob([xmlString], { type: 'text/xml' })
-            const file = new File([blob], "udpated_score.musicxml", { type: "text/xml" })
-            const formData = new FormData()
-            formData.append('xml_file', file)
-            // We use the existing API which handles R2 upload and DB update
-            // We assume the user ID is handled by the API session or passed param
-            // The API expects 'user_id' in body? Let's check PieceXmlEditor...
-            // It sends hardcoded "teacher-1". We should stick to that pattern for now or use prop.
-            // But wait, the API route uses `formData.get('user_id')`.
-            formData.append('user_id', 'teacher-1') // Matching previous implementation
-
-            const res = await fetch(`/api/pieces/${songId}`, {
-                method: 'PUT',
-                body: formData,
-            })
-
-            if (!res.ok) throw new Error("Failed to upload")
-
-            toast({ title: "Saved!", description: "Score updated successfully." })
-            window.location.reload()
-
-        } catch (e) {
-            toast({ title: "Error", description: "Failed to save score.", variant: "destructive" })
-            console.error(e)
-        }
-    }
+    }, [isStudent, isLoaded, activeTool, toast, getElementsInMeasure]) // Re-bind if activeTool changes
 
     return (
         <div className="flex flex-col h-full bg-zinc-900 relative">
@@ -458,14 +439,15 @@ export function SheetMusicPanel({
                 </div>
             )}
 
-            {/* Measure Inspector Overlay */}
+            {/* SVG Measure Inspector Overlay */}
             {!isStudent && (
-                <MeasureInspector
+                <SvgMeasureInspector
                     measureNumber={selectedMeasure}
-                    xmlString={xmlString || ""}
+                    elements={svgElements}
+                    offsets={offsets}
                     onClose={() => setSelectedMeasure(null)}
-                    onNudge={updateElementPosition}
-                    onSave={handleSaveDraft}
+                    onNudge={updateOffset}
+                    onSave={saveOffsets}
                 />
             )}
         </div>
