@@ -1,6 +1,6 @@
 "use client"
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { OpenSheetMusicDisplay as OSMDClass } from 'opensheetmusicdisplay'
+import type { OpenSheetMusicDisplay as OSMDClass } from 'opensheetmusicdisplay'
 import { AnnotationRail, AnnotationRailHandle } from './annotation-rail'
 import { AnnotationToolbar, TextPreset, DEFAULT_PRESETS } from './annotation-toolbar'
 import { Loader2, Cloud } from 'lucide-react'
@@ -159,28 +159,37 @@ export function SheetMusicPanel({
         setIsLoaded(false)
         setBookmarks([])
         containerRef.current.innerHTML = ''
-        const options = {
-            autoResize: false,
-            backend: "svg",
-            drawingParameters: "all",
-            disableTimestampCalculation: true,
-            drawTitle: false, drawSubtitle: false, drawComposer: false,
-            renderSingleHorizontalStaffline: true
-        }
-        const osmdInstance = new OSMDClass(containerRef.current, options as any)
 
-            // Cast to any to access internal EngravingRules properties
-            (osmdInstance.EngravingRules as any).RenderAccountForSkylineBottomline = false; // Disable collision detection snapping
-        osmdInstance.EngravingRules.PageTopMargin = 10.0
-        osmdInstance.EngravingRules.PageBottomMargin = 10.0
-        osmdInstance.EngravingRules.StaffDistance = 4.0
-        osmdRef.current = osmdInstance
+        let osmdInstance: OSMDClass | null = null
 
         async function load() {
             try {
+                // Dynamic import to avoid SSR/Minification issues
+                const { OpenSheetMusicDisplay: OSMD } = await import('opensheetmusicdisplay')
+                if (isCancelled) return
+
+                const options = {
+                    autoResize: false,
+                    backend: "svg",
+                    drawingParameters: "all",
+                    disableTimestampCalculation: true,
+                    drawTitle: false, drawSubtitle: false, drawComposer: false,
+                    renderSingleHorizontalStaffline: true
+                }
+
+                osmdInstance = new OSMD(containerRef.current!, options as any) as unknown as OSMDClass
+
+                // Cast to any to access internal EngravingRules properties
+                (osmdInstance.EngravingRules as any).RenderAccountForSkylineBottomline = false;
+                osmdInstance.EngravingRules.PageTopMargin = 10.0
+                osmdInstance.EngravingRules.PageBottomMargin = 10.0
+                osmdInstance.EngravingRules.StaffDistance = 4.0
+                osmdRef.current = osmdInstance
+
                 await osmdInstance.load(xmlUrl)
                 if (isCancelled) return
                 osmdInstance.render()
+
                 const sheet = osmdInstance.GraphicSheet
                 const unitInPixels = (sheet as any).UnitInPixels || 10
                 const lastMeasure = sheet.MeasureList[sheet.MeasureList.length - 1][0]
@@ -210,8 +219,15 @@ export function SheetMusicPanel({
             } catch (e) { if (!isCancelled) console.error("OSMD Error:", e) }
             finally { if (!isCancelled) setIsLoaded(true) }
         }
+
         load()
-        return () => { isCancelled = true; try { osmdInstance.clear() } catch (e) { } }
+
+        return () => {
+            isCancelled = true;
+            if (osmdInstance) {
+                try { osmdInstance.clear() } catch (e) { }
+            }
+        }
     }, [xmlUrl])
 
 
