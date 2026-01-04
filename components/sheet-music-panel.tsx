@@ -167,21 +167,21 @@ export function SheetMusicPanel({
             drawTitle: false, drawSubtitle: false, drawComposer: false,
             renderSingleHorizontalStaffline: true
         }
-        const osmd = new OpenSheetMusicDisplay(containerRef.current, options as any)
+        const osmdInstance = new OpenSheetMusicDisplay(containerRef.current, options as any)
 
             // Cast to any to access internal EngravingRules properties
-            (osmd.EngravingRules as any).RenderAccountForSkylineBottomline = false; // Disable collision detection snapping
-        osmd.EngravingRules.PageTopMargin = 10.0
-        osmd.EngravingRules.PageBottomMargin = 10.0
-        osmd.EngravingRules.StaffDistance = 4.0
-        osmdRef.current = osmd
+            (osmdInstance.EngravingRules as any).RenderAccountForSkylineBottomline = false; // Disable collision detection snapping
+        osmdInstance.EngravingRules.PageTopMargin = 10.0
+        osmdInstance.EngravingRules.PageBottomMargin = 10.0
+        osmdInstance.EngravingRules.StaffDistance = 4.0
+        osmdRef.current = osmdInstance
 
         async function load() {
             try {
-                await osmd.load(xmlUrl)
+                await osmdInstance.load(xmlUrl)
                 if (isCancelled) return
-                osmd.render()
-                const sheet = osmd.GraphicSheet
+                osmdInstance.render()
+                const sheet = osmdInstance.GraphicSheet
                 const unitInPixels = (sheet as any).UnitInPixels || 10
                 const lastMeasure = sheet.MeasureList[sheet.MeasureList.length - 1][0]
                 const width = (lastMeasure.PositionAndShape.AbsolutePosition.x +
@@ -211,7 +211,7 @@ export function SheetMusicPanel({
             finally { if (!isCancelled) setIsLoaded(true) }
         }
         load()
-        return () => { isCancelled = true; try { osmd.clear() } catch (e) { } }
+        return () => { isCancelled = true; try { osmdInstance.clear() } catch (e) { } }
     }, [xmlUrl])
 
 
