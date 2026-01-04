@@ -296,14 +296,33 @@ export function SheetMusicPanel({
             if (activeTool !== 'nudge') return
 
             try {
-                // Get measure from click coordinates
-                // Note: OSMD coordinates might be relative to svg
-                const measure = (osmdRef.current.GraphicSheet as any).GetNearestMeasure(e.clientX, e.clientY)
-                console.log("Clicked Measure:", measure?.MeasureNumber)
+                // Get bounds of the container/SVG
+                const rect = container.getBoundingClientRect()
+                const relX = e.clientX - rect.left
+                const relY = e.clientY - rect.top
+
+                // Convert to OSMD units (usually 10 pixels per unit)
+                const sheet = osmdRef.current.GraphicSheet as any
+                const unit = sheet.UnitInPixels || 10.0
+                const osmdX = relX / unit
+                const osmdY = relY / unit
+
+                console.log(`Click: (${relX}, ${relY}) -> OSMD: (${osmdX.toFixed(2)}, ${osmdY.toFixed(2)})`)
+
+                // Try GetNearestMeasure with adjusted coordinates
+                let measure = sheet.GetNearestMeasure(osmdX, osmdY)
+
+                // Fallback: If GetNearestMeasure fails or returns something far away, 
+                // we can try a simple X-axis lookup since measures are usually sorted by X?
+                // For now, let's trust the coordinate fix.
+
+                console.log("Found Measure:", measure?.MeasureNumber)
+
                 if (measure) {
                     setSelectedMeasure(measure.MeasureNumber)
+                    toast({ title: `Selected Measure ${measure.MeasureNumber}` }) // Feedback
                 }
-            } catch (err) { console.warn("No measure found") }
+            } catch (err) { console.warn("Measure hit test failed:", err) }
         }
 
         // Container has the SVG.
