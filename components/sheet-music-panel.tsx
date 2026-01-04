@@ -309,18 +309,41 @@ export function SheetMusicPanel({
 
                 console.log(`Click: (${relX}, ${relY}) -> OSMD: (${osmdX.toFixed(2)}, ${osmdY.toFixed(2)})`)
 
-                // Try GetNearestMeasure with adjusted coordinates
-                let measure = sheet.GetNearestMeasure(osmdX, osmdY)
+                // Manual Hit Test: Iterate MeasureList to find bounding box collision
+                let foundMeasureNumber: number | null = null
+                const measureList = sheet.MeasureList
 
-                // Fallback: If GetNearestMeasure fails or returns something far away, 
-                // we can try a simple X-axis lookup since measures are usually sorted by X?
-                // For now, let's trust the coordinate fix.
+                for (let i = 0; i < measureList.length; i++) {
+                    const measureColumn = measureList[i]
+                    if (!measureColumn) continue
 
-                console.log("Found Measure:", measure?.MeasureNumber)
+                    for (let j = 0; j < measureColumn.length; j++) {
+                        const gm = measureColumn[j]
+                        if (!gm || !gm.PositionAndShape) continue
 
-                if (measure) {
-                    setSelectedMeasure(measure.MeasureNumber)
-                    toast({ title: `Selected Measure ${measure.MeasureNumber}` }) // Feedback
+                        const bbox = gm.PositionAndShape
+                        const pos = bbox.AbsolutePosition
+
+                        // Bounding Box checks
+                        // Border metrics are relative to AbsolutePosition
+                        const minX = pos.x + (bbox.BorderLeft || 0)
+                        const maxX = pos.x + (bbox.BorderRight || 0)
+                        const minY = pos.y + (bbox.BorderTop || 0)
+                        const maxY = pos.y + (bbox.BorderBottom || 0)
+
+                        if (osmdX >= minX && osmdX <= maxX && osmdY >= minY && osmdY <= maxY) {
+                            foundMeasureNumber = gm.MeasureNumber
+                            break
+                        }
+                    }
+                    if (foundMeasureNumber !== null) break
+                }
+
+                console.log("Found Measure:", foundMeasureNumber)
+
+                if (foundMeasureNumber !== null) {
+                    setSelectedMeasure(foundMeasureNumber)
+                    toast({ title: `Selected Measure ${foundMeasureNumber}` }) // Feedback
                 }
             } catch (err) { console.warn("Measure hit test failed:", err) }
         }
