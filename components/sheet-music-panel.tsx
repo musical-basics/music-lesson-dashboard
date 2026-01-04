@@ -1,6 +1,6 @@
 "use client"
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
+import { OpenSheetMusicDisplay as OSMDClass } from 'opensheetmusicdisplay'
 import { AnnotationRail, AnnotationRailHandle } from './annotation-rail'
 import { AnnotationToolbar, TextPreset, DEFAULT_PRESETS } from './annotation-toolbar'
 import { Loader2, Cloud } from 'lucide-react'
@@ -32,7 +32,7 @@ export function SheetMusicPanel({
     // ----------------------------------------------------------------
     const containerRef = useRef<HTMLDivElement>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
-    const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
+    const osmdRef = useRef<OSMDClass | null>(null)
     const railRef = useRef<AnnotationRailHandle>(null)
 
     const [isLoaded, setIsLoaded] = useState(false)
@@ -167,7 +167,7 @@ export function SheetMusicPanel({
             drawTitle: false, drawSubtitle: false, drawComposer: false,
             renderSingleHorizontalStaffline: true
         }
-        const osmdInstance = new OpenSheetMusicDisplay(containerRef.current, options as any)
+        const osmdInstance = new OSMDClass(containerRef.current, options as any)
 
             // Cast to any to access internal EngravingRules properties
             (osmdInstance.EngravingRules as any).RenderAccountForSkylineBottomline = false; // Disable collision detection snapping
