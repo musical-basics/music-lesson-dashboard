@@ -6,6 +6,10 @@ import { AnnotationToolbar, TextPreset, DEFAULT_PRESETS } from './annotation-too
 import { Loader2, Cloud } from 'lucide-react'
 import { useAnnotationHistory } from '@/hooks/use-annotation-history'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { useXmlNudge } from "@/hooks/use-xml-nudge"
+import { MeasureInspector } from "@/components/measure-inspector"
+import { useToast } from "@/components/ui/use-toast"
+import { Button } from "@/components/ui/button"
 
 interface SheetMusicPanelProps {
     xmlUrl: string
@@ -27,6 +31,8 @@ export function SheetMusicPanel({
     isStudent = false,
     readOnly = false
 }: SheetMusicPanelProps) {
+    const { toast } = useToast()
+
     // ----------------------------------------------------------------
     // 1. STATE MANAGEMENT
     // ----------------------------------------------------------------
@@ -38,6 +44,10 @@ export function SheetMusicPanel({
     const [isLoaded, setIsLoaded] = useState(false)
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
     const [bookmarks, setBookmarks] = useState<BookmarkData[]>([])
+
+    // Nudge & Inspector State
+    const [selectedMeasure, setSelectedMeasure] = useState<number | null>(null)
+    const { xmlString, setXmlString, updateElementPosition } = useXmlNudge("")
 
     const isMobile = useIsMobile()
 
@@ -151,45 +161,77 @@ export function SheetMusicPanel({
     }
 
     // ----------------------------------------------------------------
-    // 4. OSMD LOADING EFFECT
+    // 4. XML & OSMD LOGIC
     // ----------------------------------------------------------------
+
+    // Fetch initial XML
+    useEffect(() => {
+        if (!xmlUrl) return
+        fetch(xmlUrl)
+            .then(r => r.text())
+            .then(text => {
+                setXmlString(text)
+            })
+            .catch(err => console.error("Failed to fetch XML:", err))
+    }, [xmlUrl, setXmlString])
+
+    // Initialize OSMD (Once) and Handle Updates
     useEffect(() => {
         if (!containerRef.current) return
+
         let isCancelled = false
+        // Only reset if we are purely switching songs, but here we want to persist the instance if possible?
+        // Actually, for simplicity, let's keep the single effect but rely on xmlString
+
+        // If xmlString is empty, don't do anything yet
+        if (!xmlString) return
+
         setIsLoaded(false)
         setBookmarks([])
-        containerRef.current.innerHTML = ''
 
-        let osmdInstance: OSMDClass | null = null
+        // Check if OSMD is already initialized
+        if (!osmdRef.current) {
+            containerRef.current.innerHTML = '' // Clear only on first init
+            // We need to initialize asynchronously due to dynamic import
+            // But we can't block this effect. 
+            // Strategy: Create a localized init function.
+        }
 
-        async function load() {
+        async function initAndLoad() {
             try {
-                // Dynamic import to avoid SSR/Minification issues
-                const { OpenSheetMusicDisplay: OSMD } = await import('opensheetmusicdisplay')
-                if (isCancelled) return
+                if (!osmdRef.current) {
+                    // Dynamic import (Production Crash Fix)
+                    const { OpenSheetMusicDisplay: OSMD } = await import('opensheetmusicdisplay')
+                    if (isCancelled) return
 
-                const options = {
-                    autoResize: false,
-                    backend: "svg",
-                    drawingParameters: "all",
-                    disableTimestampCalculation: true,
-                    drawTitle: false, drawSubtitle: false, drawComposer: false,
-                    renderSingleHorizontalStaffline: true
+                    const options = {
+                        autoResize: false,
+                        backend: "svg",
+                        drawingParameters: "all",
+                        disableTimestampCalculation: true,
+                        drawTitle: false, drawSubtitle: false, drawComposer: false,
+                        renderSingleHorizontalStaffline: true
+                    }
+                    const instance = new OSMD(containerRef.current!, options as any) as unknown as OSMDClass
+
+                    // Apply options
+                    (instance.EngravingRules as any).RenderAccountForSkylineBottomline = false;
+                    instance.EngravingRules.PageTopMargin = 10.0
+                    instance.EngravingRules.PageBottomMargin = 10.0
+                    instance.EngravingRules.StaffDistance = 4.0
+
+                    osmdRef.current = instance
                 }
 
-                osmdInstance = new OSMD(containerRef.current!, options as any) as unknown as OSMDClass
+                const osmdInstance = osmdRef.current
+                if (!osmdInstance) return
 
-                // Cast to any to access internal EngravingRules properties
-                (osmdInstance.EngravingRules as any).RenderAccountForSkylineBottomline = false;
-                osmdInstance.EngravingRules.PageTopMargin = 10.0
-                osmdInstance.EngravingRules.PageBottomMargin = 10.0
-                osmdInstance.EngravingRules.StaffDistance = 4.0
-                osmdRef.current = osmdInstance
-
-                await osmdInstance.load(xmlUrl)
+                await osmdInstance.load(xmlString)
                 if (isCancelled) return
+
                 osmdInstance.render()
 
+                // --- Calculations (Bookmarks & Dimensions) ---
                 const sheet = osmdInstance.GraphicSheet
                 const unitInPixels = (sheet as any).UnitInPixels || 10
                 const lastMeasure = sheet.MeasureList[sheet.MeasureList.length - 1][0]
@@ -216,23 +258,95 @@ export function SheetMusicPanel({
                     setBookmarks(newBookmarks)
                 } catch (bmError) { console.warn("Bookmark failed", bmError) }
 
-            } catch (e) { if (!isCancelled) console.error("OSMD Error:", e) }
-            finally { if (!isCancelled) setIsLoaded(true) }
-        }
-
-        load()
-
-        return () => {
-            isCancelled = true;
-            if (osmdInstance) {
-                try { osmdInstance.clear() } catch (e) { }
+            } catch (e) {
+                if (!isCancelled) console.error("OSMD Error:", e)
+            } finally {
+                if (!isCancelled) setIsLoaded(true)
             }
         }
-    }, [xmlUrl])
 
+        initAndLoad()
+
+        return () => {
+            // We don't necessarily want to kill the instance on every render if just string changes
+            // But if unmounting, we should.
+            isCancelled = true
+        }
+
+    }, [xmlString]) // Re-run when xmlString changes
+
+    // Cleanup on unmount (separate effect to avoid clearing on nudge)
+    useEffect(() => {
+        return () => {
+            if (osmdRef.current) {
+                try { osmdRef.current.clear() } catch (e) { }
+                osmdRef.current = null
+            }
+        }
+    }, [])
+
+    // Click Listener for Measure Selection
+    useEffect(() => {
+        const container = containerRef.current
+        if (!container || isStudent) return
+
+        const handleClick = (e: MouseEvent) => {
+            if (!osmdRef.current) return
+            // Check if user clicked on canvas (Fabric.js rail is on top, might block clicks?)
+            // AnnotationRail has pointer-events: none usually, but its canvas might capture.
+            // If activeTool is 'select' or null, we might want to allow this.
+
+            try {
+                // Get measure from click coordinates
+                // Note: OSMD coordinates might be relative to svg
+                const measure = (osmdRef.current.GraphicSheet as any).GetNearestMeasure(e.clientX, e.clientY)
+                console.log("Clicked Measure:", measure?.MeasureNumber)
+                if (measure) {
+                    setSelectedMeasure(measure.MeasureNumber)
+                }
+            } catch (err) { console.warn("No measure found") }
+        }
+
+        // We attach to window/document to capture better? or container?
+        // Container has the SVG.
+        container.addEventListener('click', handleClick)
+        return () => container.removeEventListener('click', handleClick)
+    }, [isStudent, isLoaded]) // Re-bind if loaded changes
+
+    // Handle Save
+    const handleSaveDraft = async () => {
+        if (!songId) return
+
+        try {
+            const blob = new Blob([xmlString], { type: 'text/xml' })
+            const file = new File([blob], "udpated_score.musicxml", { type: "text/xml" })
+            const formData = new FormData()
+            formData.append('xml_file', file)
+            // We use the existing API which handles R2 upload and DB update
+            // We assume the user ID is handled by the API session or passed param
+            // The API expects 'user_id' in body? Let's check PieceXmlEditor...
+            // It sends hardcoded "teacher-1". We should stick to that pattern for now or use prop.
+            // But wait, the API route uses `formData.get('user_id')`.
+            formData.append('user_id', 'teacher-1') // Matching previous implementation
+
+            const res = await fetch(`/api/pieces/${songId}`, {
+                method: 'PUT',
+                body: formData,
+            })
+
+            if (!res.ok) throw new Error("Failed to upload")
+
+            toast({ title: "Saved!", description: "Score updated successfully." })
+            window.location.reload()
+
+        } catch (e) {
+            toast({ title: "Error", description: "Failed to save score.", variant: "destructive" })
+            console.error(e)
+        }
+    }
 
     return (
-        <div className="flex flex-col h-full bg-zinc-900">
+        <div className="flex flex-col h-full bg-zinc-900 relative">
             {/* Toolbar - Teacher Only */}
             {!isStudent && (
                 <div className="h-14 bg-zinc-800 border-b border-zinc-700 flex items-center px-4 justify-between shrink-0">
@@ -300,6 +414,17 @@ export function SheetMusicPanel({
                         </button>
                     ))}
                 </div>
+            )}
+
+            {/* Measure Inspector Overlay */}
+            {!isStudent && (
+                <MeasureInspector
+                    measureNumber={selectedMeasure}
+                    xmlString={xmlString || ""}
+                    onClose={() => setSelectedMeasure(null)}
+                    onNudge={updateElementPosition}
+                    onSave={handleSaveDraft}
+                />
             )}
         </div>
     )
