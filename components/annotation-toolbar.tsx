@@ -3,6 +3,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Label } from "@/components/ui/label"
 import {
     MousePointer2,
+    MousePointerClick,
     Pencil,
     Highlighter,
     Type,
@@ -43,8 +44,8 @@ const colors = [
 ]
 
 export interface AnnotationToolbarProps {
-    activeTool: 'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | null
-    setActiveTool: (tool: 'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | null) => void
+    activeTool: 'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | 'nudge' | null
+    setActiveTool: (tool: 'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | 'nudge' | null) => void
     textSize: number
     setTextSize: (size: number) => void
     handleTriggerText: () => void
@@ -87,6 +88,15 @@ export const AnnotationToolbar = ({
             title="Select"
         >
             <MousePointer2 className="w-4 h-4" />
+        </Button>
+        <Button
+            variant={activeTool === "nudge" ? "default" : "ghost"}
+            size="sm"
+            className="w-8 h-8 p-0 text-amber-500 hover:text-amber-400"
+            onClick={() => setActiveTool(activeTool === "nudge" ? null : "nudge")}
+            title="Nudge Inspector (Edit XML)"
+        >
+            <MousePointerClick className="w-4 h-4" />
         </Button>
         <Button
             variant={activeTool === "pen" ? "default" : "ghost"}

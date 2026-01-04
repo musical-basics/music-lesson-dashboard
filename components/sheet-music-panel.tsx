@@ -52,7 +52,7 @@ export function SheetMusicPanel({
     const isMobile = useIsMobile()
 
     // Tool State
-    const [activeTool, setActiveTool] = useState<'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | null>(
+    const [activeTool, setActiveTool] = useState<'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | 'nudge' | null>(
         isMobile ? 'scroll' : 'select'
     )
     const [penColor, setPenColor] = useState("#ff0000") // Default Red
@@ -292,9 +292,8 @@ export function SheetMusicPanel({
 
         const handleClick = (e: MouseEvent) => {
             if (!osmdRef.current) return
-            // Check if user clicked on canvas (Fabric.js rail is on top, might block clicks?)
-            // AnnotationRail has pointer-events: none usually, but its canvas might capture.
-            // If activeTool is 'select' or null, we might want to allow this.
+            // Only trigger if we are in "Nudge Mode"
+            if (activeTool !== 'nudge') return
 
             try {
                 // Get measure from click coordinates
@@ -307,11 +306,10 @@ export function SheetMusicPanel({
             } catch (err) { console.warn("No measure found") }
         }
 
-        // We attach to window/document to capture better? or container?
         // Container has the SVG.
         container.addEventListener('click', handleClick)
         return () => container.removeEventListener('click', handleClick)
-    }, [isStudent, isLoaded]) // Re-bind if loaded changes
+    }, [isStudent, isLoaded, activeTool]) // Re-bind if activeTool changes
 
     // Handle Save
     const handleSaveDraft = async () => {
@@ -388,18 +386,20 @@ export function SheetMusicPanel({
                 <div className="bg-white" style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
                     <div ref={containerRef} className="absolute inset-0" />
                     {isLoaded && isStateLoaded && (
-                        <AnnotationRail
-                            ref={railRef}
-                            totalWidth={dimensions.width + 200}
-                            height={dimensions.height}
-                            activeTool={activeTool as any}
-                            clearTrigger={clearTrigger}
-                            data={data}
-                            onSave={handleAnnotationSave}
-                            color={penColor}
-                            textSize={textSize}
-                            readOnly={readOnly}
-                        />
+                        <div className={`absolute inset-0 ${activeTool === 'nudge' ? 'pointer-events-none' : ''}`}>
+                            <AnnotationRail
+                                ref={railRef}
+                                totalWidth={dimensions.width + 200}
+                                height={dimensions.height}
+                                activeTool={activeTool as any}
+                                clearTrigger={clearTrigger}
+                                data={data}
+                                onSave={handleAnnotationSave}
+                                color={penColor}
+                                textSize={textSize}
+                                readOnly={readOnly}
+                            />
+                        </div>
                     )}
                 </div>
             </div>
