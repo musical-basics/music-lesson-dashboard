@@ -21,6 +21,8 @@ import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
 import { useRoomSync, ActivePiece, ViewMode, AspectRatio } from "@/hooks/use-room-sync"
 import { VideoAspectRatio, VideoPanel } from "@/components/video-panel"
+import { PieceXmlEditor } from "@/components/piece-xml-editor"
+import { useToast } from "@/hooks/use-toast"
 
 
 interface LessonInterfaceProps {
@@ -43,6 +45,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   const [localViewMode, setLocalViewMode] = useState<ViewMode>("sheet-music")
   const [localAspectRatio, setLocalAspectRatio] = useState<AspectRatio>("widescreen")
   const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
+  const [isEditingXml, setIsEditingXml] = useState(false)
+  const { toast } = useToast()
 
   // Derive effective view mode based on teacher control
   const isControlled = isStudent && settings.teacherControlEnabled
@@ -59,11 +63,43 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
   // Handler for view mode changes
   const handleViewModeChange = (mode: ViewMode) => {
+    if (isControlled) return
     setLocalViewMode(mode)
+
+    // Broadcast if teacher control is on (should be handled by effect, but specific explicit action)
     if (!isStudent && settings.teacherControlEnabled) {
-      // Teacher with control enabled - broadcast to students
-      setRoomSettings({ viewMode: mode })
+      setRoomSettings({
+        ...settings,
+        viewMode: mode
+      })
     }
+  }
+
+  // Handle saving XML from editor
+  const handleSaveXml = async (newXmlContent: string) => {
+    if (!activePiece) return
+
+    // 1. Create File object
+    const blob = new Blob([newXmlContent], { type: 'text/xml' })
+    const file = new File([blob], `${activePiece.id}.musicxml`, { type: 'text/xml' })
+
+    // 2. Prepare FormData
+    const formData = new FormData()
+    formData.append('xml_file', file)
+    formData.append('user_id', "teacher-1") // Hardcoded ID matching PieceSelector usage
+
+    // 3. Upload via internal API
+    const response = await fetch(`/api/pieces/${activePiece.id}`, {
+      method: 'PUT',
+      body: formData
+    })
+
+    if (!response.ok) {
+      throw new Error("Failed to save XML")
+    }
+
+    // 4. Reload page to reflect changes (simplest way to ensure all peers get new content/caches cleared)
+    window.location.reload()
   }
 
   // Handler for aspect ratio changes
@@ -214,11 +250,24 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                     <div className="px-3 lg:px-4 py-2 lg:py-3 border-b border-border bg-secondary/50 flex items-center justify-between">
                       <div className="flex items-center gap-2 lg:gap-3">
                         {!isStudent ? (
-                          <PieceSelector
-                            userId="teacher-1"
-                            selectedPiece={activePiece as Piece | null}
-                            onSelectPiece={(piece) => piece && setRoomPiece(piece as ActivePiece)}
-                          />
+                          <>
+                            <PieceSelector
+                              userId="teacher-1"
+                              selectedPiece={activePiece as Piece | null}
+                              onSelectPiece={(piece) => piece && setRoomPiece(piece as ActivePiece)}
+                            />
+                            {activePiece && !isStudent && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setIsEditingXml(true)}
+                                className="h-9 ml-2 text-xs border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-indigo-300 hover:text-indigo-200"
+                              >
+                                <Lock className="w-3 h-3 mr-1.5" />
+                                Edit XML
+                              </Button>
+                            )}
+                          </>
                         ) : (
                           <>
                             <Music className="w-4 h-4 lg:w-5 lg:h-5 text-primary" />
@@ -380,6 +429,13 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
       </div>
 
 
+      {isEditingXml && activePiece && (
+        <PieceXmlEditor
+          initialXmlUrl={activePiece.xml_url}
+          onClose={() => setIsEditingXml(false)}
+          onSave={handleSaveXml}
+        />
+      )}
     </div>
   )
 }

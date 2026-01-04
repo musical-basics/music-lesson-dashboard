@@ -159,11 +159,18 @@ export function SheetMusicPanel({
         setIsLoaded(false)
         setBookmarks([])
         containerRef.current.innerHTML = ''
-        const osmd = new OpenSheetMusicDisplay(containerRef.current, {
-            autoResize: false, backend: "svg", drawingParameters: "default",
+        const options = {
+            autoResize: false,
+            backend: "svg",
+            drawingParameters: "all",
+            disableTimestampCalculation: true,
             drawTitle: false, drawSubtitle: false, drawComposer: false,
             renderSingleHorizontalStaffline: true
-        })
+        }
+        const osmd = new OpenSheetMusicDisplay(containerRef.current, options as any)
+
+            // Cast to any to access internal EngravingRules properties
+            (osmd.EngravingRules as any).RenderAccountForSkylineBottomline = false; // Disable collision detection snapping
         osmd.EngravingRules.PageTopMargin = 10.0
         osmd.EngravingRules.PageBottomMargin = 10.0
         osmd.EngravingRules.StaffDistance = 4.0
