@@ -21,8 +21,12 @@ export function useLessonState(studentId: string, songId: string) {
 
     // 1. LOAD & SUBSCRIBE
     useEffect(() => {
+        console.log("🔍 useLessonState: Initializing with studentId=", studentId, "songId=", songId)
         setIsLoaded(false)
-        if (!studentId || !songId) return
+        if (!studentId || !songId) {
+            console.log("⚠️ useLessonState: Missing IDs, skipping fetch")
+            return
+        }
 
         // A. Initial Fetch
         async function fetchState() {
