@@ -86,17 +86,17 @@ export function useSvgNudge(songId: string | null) {
     const getElementsInMeasure = useCallback((container: HTMLElement | null, measureNumber: number): { selector: string; text: string }[] => {
         if (!container) return []
 
-        // OSMD renders measures as groups. We need to find text elements within a measure bounding box.
-        // For now, we'll return all text elements and let the user pick.
-        // A more sophisticated approach would use OSMD's internal mapping.
-
         const elements: { selector: string; text: string }[] = []
         const textElements = container.querySelectorAll('text')
+        const seenSelectors = new Set<string>()
 
         textElements.forEach((el) => {
             const selector = el.getAttribute('data-nudge-selector')
             const text = el.textContent?.trim() || ''
-            if (selector && text) {
+
+            // Deduplicate: only add if we haven't seen this selector before
+            if (selector && text && !seenSelectors.has(selector)) {
+                seenSelectors.add(selector)
                 elements.push({ selector, text })
             }
         })
