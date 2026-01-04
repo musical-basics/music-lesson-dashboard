@@ -32,23 +32,30 @@ export function useXmlNudge(initialXml: string) {
         const targetElement = directions[elementIndex]
 
         if (targetElement) {
-            // Find or Create <direction-type> -> <words> or <dynamics>
-            // We usually want to apply the offset to the <direction> tag itself or its child
-            // But MusicXML often puts default-x/y on the <direction-type>'s child (like <words>)
+            // We need to apply the offset to the specific child (words, dynamics, etc)
+            const positioningNode = targetElement.querySelector('words, dynamics, wedge, rehearsal')
 
-            // Strategy: Look for the <words> or <dynamics> tag inside
-            const positioningNode = targetElement.querySelector('words, dynamics, wedge')
-
-            // If the specific node doesn't exist or doesn't have the attr, we might need to look at <direction>
-            // For now, let's try updating the child node which OSMD reads.
             if (positioningNode) {
-                const attr = axis === 'x' ? 'default-x' : 'default-y'
+                // SWITCH TO RELATIVE POSITIONING
+                // 'relative-y' pushes element UP/DOWN from its auto-calculated spot.
+                // 'relative-x' pushes element LEFT/RIGHT.
+                const attr = axis === 'x' ? 'relative-x' : 'relative-y'
+
+                // Get current value (default to 0 if not set)
                 const currentVal = parseFloat(positioningNode.getAttribute(attr) || "0")
+
+                // Apply delta
                 const newVal = currentVal + delta
+
+                // Update XML
                 positioningNode.setAttribute(attr, newVal.toString())
+
+                // [Optional] Clean up absolute positioning to stop it from confusing OSMD?
+                // Sometimes removing default-y helps, but usually relative-y overrides it effectively.
+                // positioningNode.removeAttribute('default-y') 
+                // positioningNode.removeAttribute('default-x')
                 console.log(`Nudged Measure ${measureNumber} Element ${elementIndex} ${axis} to ${newVal}`)
 
-                // Serialize back to string
                 const serializer = new XMLSerializer()
                 setXmlString(serializer.serializeToString(doc))
             } else {
