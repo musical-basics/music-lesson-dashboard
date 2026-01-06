@@ -26,18 +26,26 @@ export function useSvgNudge(songId: string | null) {
     const applyOffsetsToSvg = useCallback((container: HTMLElement | null) => {
         if (!container) return
 
-        // Find all text elements in the SVG
-        const textElements = container.querySelectorAll('text')
+        // Broaden search to include tspan and other potential text containers
+        const textElements = container.querySelectorAll('text, tspan, .vf-text')
+
+        console.log(`SVG Nudge: Found ${textElements.length} potential text elements`)
 
         textElements.forEach((el, index) => {
             // Create a unique selector based on content + index
-            const content = el.textContent?.trim() || ''
-            const selector = `text-${index}-${content.slice(0, 20).replace(/\s+/g, '_')}`
+            // Fallback for empty text content
+            const content = el.textContent?.trim() || 'unknown'
+            // Use a broader selector strategy: use ID if available, otherwise construct one
+            const elementId = el.id ? `id-${el.id}` : ''
+            const selector = `text-${index}-${content.slice(0, 20).replace(/\s+/g, '_')}${elementId ? `-${elementId}` : ''}`
 
             const offset = offsets[selector]
             if (offset) {
                 // Apply CSS transform
-                el.style.transform = `translate(${offset.x}px, ${offset.y}px)`
+                // Cast to HTMLElement to access style
+                if (el instanceof HTMLElement || el instanceof SVGElement) {
+                    (el as HTMLElement).style.transform = `translate(${offset.x}px, ${offset.y}px)`
+                }
                 el.setAttribute('data-nudge-selector', selector)
             } else {
                 // Mark element for later nudging
@@ -87,15 +95,24 @@ export function useSvgNudge(songId: string | null) {
         if (!container) return []
 
         const elements: { selector: string; text: string }[] = []
-        const textElements = container.querySelectorAll('text')
+        // Same broad selector
+        const textElements = container.querySelectorAll('text, tspan, .vf-text')
         const seenSelectors = new Set<string>()
 
         textElements.forEach((el) => {
             const selector = el.getAttribute('data-nudge-selector')
-            const text = el.textContent?.trim() || ''
+            // Relaxed check: allow elements with empty text if they have a selector (might be styling elements)
+            // But usually we want some label.
+            let text = el.textContent?.trim() || ''
+
+            if (!text) {
+                // Try to infer what it is
+                if (el.tagName.toLowerCase() === 'tspan') text = '<tspan>'
+                else text = '<empty>'
+            }
 
             // Deduplicate: only add if we haven't seen this selector before
-            if (selector && text && !seenSelectors.has(selector)) {
+            if (selector && !seenSelectors.has(selector)) {
                 seenSelectors.add(selector)
                 elements.push({ selector, text })
             }

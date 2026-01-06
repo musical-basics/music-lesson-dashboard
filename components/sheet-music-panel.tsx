@@ -309,13 +309,14 @@ export function SheetMusicPanel({
             const target = e.target as Element
             let clickedTextElement: Element | null = null
 
-            // Check if clicked element is a text element or its parent
-            if (target.tagName === 'text' || target.tagName === 'TEXT') {
+            // Check if clicked element is a text element or its parent (broadened for tspan)
+            const tagName = target.tagName.toLowerCase()
+            if (tagName === 'text' || tagName === 'tspan' || target.classList.contains('vf-text')) {
                 clickedTextElement = target
-            } else if (target.parentElement?.tagName === 'text' || target.parentElement?.tagName === 'TEXT') {
+            } else if (target.parentElement && (target.parentElement.tagName.toLowerCase() === 'text' || target.parentElement.tagName.toLowerCase() === 'tspan')) {
                 clickedTextElement = target.parentElement
-            } else if (target.closest('text')) {
-                clickedTextElement = target.closest('text')
+            } else if (target.closest('text, tspan, .vf-text')) {
+                clickedTextElement = target.closest('text, tspan, .vf-text')
             }
 
             try {
