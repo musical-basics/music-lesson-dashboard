@@ -49,6 +49,7 @@ export function SheetMusicPanel({
     const [selectedMeasure, setSelectedMeasure] = useState<number | null>(null)
     const [svgElements, setSvgElements] = useState<{ selector: string; text: string }[]>([])
     const [xmlContent, setXmlContent] = useState<string>("")
+    const [selectedElementSelector, setSelectedElementSelector] = useState<string | null>(null)
     const { offsets, applyOffsetsToSvg, updateOffset, saveOffsets, getElementsInMeasure } = useSvgNudge(songId)
 
     const isMobile = useIsMobile()
@@ -294,7 +295,7 @@ export function SheetMusicPanel({
         }
     }, [isLoaded, offsets, applyOffsetsToSvg])
 
-    // Click Listener for Measure Selection
+    // Click Listener for Measure Selection and Element Selection
     useEffect(() => {
         const container = containerRef.current
         if (!container || isStudent) return
@@ -303,6 +304,19 @@ export function SheetMusicPanel({
             if (!osmdRef.current) return
             // Only trigger if we are in "Nudge Mode"
             if (activeTool !== 'nudge') return
+
+            // First, check if we clicked directly on a text element
+            const target = e.target as Element
+            let clickedTextElement: Element | null = null
+
+            // Check if clicked element is a text element or its parent
+            if (target.tagName === 'text' || target.tagName === 'TEXT') {
+                clickedTextElement = target
+            } else if (target.parentElement?.tagName === 'text' || target.parentElement?.tagName === 'TEXT') {
+                clickedTextElement = target.parentElement
+            } else if (target.closest('text')) {
+                clickedTextElement = target.closest('text')
+            }
 
             try {
                 // Get bounds of the container/SVG
@@ -350,13 +364,25 @@ export function SheetMusicPanel({
 
                 console.log("Found Measure:", foundMeasureNumber)
 
-                if (foundMeasureNumber !== null) {
-                    setSelectedMeasure(foundMeasureNumber)
-                    toast({ title: `Selected Measure ${foundMeasureNumber}` })
+                // Always populate svgElements with all text elements from the SVG
+                const elements = getElementsInMeasure(container, foundMeasureNumber || 1)
+                setSvgElements(elements)
+                setSelectedMeasure(foundMeasureNumber || 1) // Show inspector
 
-                    // Populate svgElements with all text elements from the SVG
-                    const elements = getElementsInMeasure(container, foundMeasureNumber)
-                    setSvgElements(elements)
+                // If user clicked directly on a text element, set it as selected
+                if (clickedTextElement) {
+                    const clickedSelector = clickedTextElement.getAttribute('data-nudge-selector')
+                    if (clickedSelector) {
+                        setSelectedElementSelector(clickedSelector)
+                        const clickedText = clickedTextElement.textContent?.trim() || ''
+                        toast({ title: `Selected: ${clickedText}` })
+                    }
+                } else {
+                    // Clear selection if clicking on background
+                    setSelectedElementSelector(null)
+                    if (foundMeasureNumber !== null) {
+                        toast({ title: `Selected Measure ${foundMeasureNumber}` })
+                    }
                 }
             } catch (err) { console.warn("Measure hit test failed:", err) }
         }
@@ -445,9 +471,11 @@ export function SheetMusicPanel({
                     measureNumber={selectedMeasure}
                     elements={svgElements}
                     offsets={offsets}
-                    onClose={() => setSelectedMeasure(null)}
+                    selectedElementSelector={selectedElementSelector}
+                    onClose={() => { setSelectedMeasure(null); setSelectedElementSelector(null) }}
                     onNudge={updateOffset}
                     onSave={saveOffsets}
+                    onSelectElement={setSelectedElementSelector}
                 />
             )}
         </div>
