@@ -13,8 +13,15 @@ import {
   PictureInPicture2,
   Video,
   Lock,
-  Unlock
+  Unlock,
+  Settings
 } from "lucide-react"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { MediaDeviceSettings } from "@/components/device-selector"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
@@ -234,6 +241,29 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 </div>
               </>
             )}
+
+            {/* Separator */}
+            <div className="w-px h-5 bg-border mx-2" />
+
+            {/* Device Settings */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Settings className="w-4 h-4 text-muted-foreground" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80" align="end">
+                <div className="grid gap-4">
+                  <div className="space-y-2">
+                    <h4 className="font-medium leading-none">Device Settings</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Manage your camera and microphone.
+                    </p>
+                  </div>
+                  <MediaDeviceSettings />
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       )}
