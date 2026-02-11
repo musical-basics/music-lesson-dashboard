@@ -92,6 +92,19 @@ function MusicStudioContent() {
     }
   }
 
+  // --- MEDIA LOGIC FIX ---
+  // If userChoices exists (from Green Room), use those IDs.
+  // If NOT (Teacher auto-join), default to 'true' (System Default) if we are in a live view.
+  const isLiveView = currentView !== 'green-room';
+
+  const videoProp = isLiveView
+    ? (userChoices ? { deviceId: userChoices.videoDeviceId } : true)
+    : false;
+
+  const audioProp = isLiveView
+    ? (userChoices ? { deviceId: userChoices.audioDeviceId } : true)
+    : false;
+
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
       {/* Mobile Header */}
@@ -133,8 +146,8 @@ function MusicStudioContent() {
       {/* Main Content */}
       <main className="flex-1 overflow-hidden h-[calc(100vh-65px)] md:h-screen">
         <LiveKitRoom
-          video={userChoices && currentView !== 'green-room' ? { deviceId: userChoices.videoDeviceId } : false}
-          audio={userChoices && currentView !== 'green-room' ? { deviceId: userChoices.audioDeviceId } : false}
+          video={videoProp}
+          audio={audioProp}
           token={token}
           serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
           connect={!!token}
