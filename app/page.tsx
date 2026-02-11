@@ -36,10 +36,15 @@ function MusicStudioContent() {
     audioDeviceId: string;
   } | null>(null);
 
-  // 2. AUTO-JOIN LOGIC (The Fix)
+  // 2. AUTO-JOIN LOGIC (Corrected)
   useEffect(() => {
-    // If we have a room and a name in the URL, we should connect immediately
-    if (roomParam && nameParam && !token) {
+    // CRITICAL FIX: Determine the effective view. Default is 'green-room'.
+    const targetView = viewParam || 'green-room';
+
+    // Only auto-join if we are NOT in the green room.
+    // This prevents the "Background Connection" from stealing the camera 
+    // while the Green Room preview is trying to use it.
+    if (targetView !== 'green-room' && roomParam && nameParam && !token) {
       const fetchToken = async () => {
         try {
           console.log(`🔌 Auto-joining room: ${roomParam} as ${nameParam}`)
@@ -54,7 +59,7 @@ function MusicStudioContent() {
       }
       fetchToken()
     }
-  }, [roomParam, nameParam, roleParam, keyParam, token])
+  }, [viewParam, roomParam, nameParam, roleParam, keyParam, token])
 
   // Sync 'currentView' state with URL param if it changes externally
   useEffect(() => {
