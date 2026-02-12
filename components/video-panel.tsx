@@ -12,7 +12,14 @@ import {
     Square,
     Music2,
     Headphones,
+    Settings,
 } from "lucide-react"
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover"
+import { MediaDeviceSettings } from "@/components/device-selector"
 import { useLocalParticipant, useTracks, ParticipantTile } from "@livekit/components-react"
 import { Track } from "livekit-client"
 import { supabase } from "@/supabase/client"
@@ -314,7 +321,7 @@ export function VideoPanel({
             {/* Controls Bar */}
             <div className="flex items-center justify-between gap-2 p-2 bg-sidebar border-t border-border">
                 {/* Camera/Mic Controls */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                     <Button
                         variant="ghost"
                         size="sm"
@@ -333,6 +340,24 @@ export function VideoPanel({
                     >
                         {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                     </Button>
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button variant="ghost" size="sm" className="w-8 h-8 p-0" title="Device Settings">
+                                <Settings className="w-4 h-4" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-80" side="top" align="start">
+                            <div className="grid gap-4">
+                                <div className="space-y-2">
+                                    <h4 className="font-medium leading-none">Device Settings</h4>
+                                    <p className="text-sm text-muted-foreground">
+                                        Switch your camera or microphone.
+                                    </p>
+                                </div>
+                                <MediaDeviceSettings />
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                 </div>
 
                 {/* Music Mode Toggle */}
