@@ -126,6 +126,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -149,4 +150,10 @@
 .video-aspect-cover .lk-participant-tile video,
 .video-aspect-cover [data-lk-participant-tile] video {
   object-fit: cover !important;
+}
+
+/* Disable mirror mode on local camera - important for piano lessons
+   so the keyboard orientation is correct for the viewer */
+.lk-participant-tile video {
+  transform: none !important;
 }
