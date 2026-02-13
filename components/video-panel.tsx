@@ -124,7 +124,7 @@ export function VideoPanel({
     // State
     const [isMuted, setIsMuted] = useState(false)
     const [isVideoOff, setIsVideoOff] = useState(false)
-    const [isMusicMode, setIsMusicMode] = useState(true)
+    const [isMusicMode, setIsMusicMode] = useState(false) // Default: talk mode (echo cancellation ON)
     const [isRecording, setIsRecording] = useState(false)
     const [uploadStatus, setUploadStatus] = useState("")
 
@@ -141,6 +141,32 @@ export function VideoPanel({
             localParticipant.setMicrophoneEnabled(true)
         }
     }, [localParticipant])
+
+    // Apply audio processing settings when Music Mode changes
+    useEffect(() => {
+        if (!localParticipant) return
+
+        const applyAudioSettings = async () => {
+            // Music mode: disable all processing for raw audio fidelity
+            // Talk mode: enable echo cancellation, noise suppression, auto gain
+            const micOptions = {
+                echoCancellation: !isMusicMode,
+                noiseSuppression: !isMusicMode,
+                autoGainControl: !isMusicMode,
+            }
+
+            try {
+                // Republish mic with new constraints
+                await localParticipant.setMicrophoneEnabled(false)
+                await localParticipant.setMicrophoneEnabled(true, micOptions)
+                console.log(`[Audio] ${isMusicMode ? 'Music' : 'Talk'} mode:`, micOptions)
+            } catch (e) {
+                console.error("Failed to apply audio settings:", e)
+            }
+        }
+
+        applyAudioSettings()
+    }, [isMusicMode, localParticipant])
 
     // Toggle camera via LiveKit
     const toggleCamera = async () => {
