@@ -25,6 +25,9 @@ export interface RoomSettings {
     viewMode: ViewMode
     aspectRatio: AspectRatio
     teacherControlEnabled: boolean
+    echoCancellation: boolean
+    noiseSuppression: boolean
+    autoGainControl: boolean
 }
 
 export interface RoomState {
@@ -35,7 +38,10 @@ export interface RoomState {
 const DEFAULT_SETTINGS: RoomSettings = {
     viewMode: "sheet-music",
     aspectRatio: "widescreen",
-    teacherControlEnabled: false
+    teacherControlEnabled: false,
+    echoCancellation: true,
+    noiseSuppression: false,
+    autoGainControl: false
 }
 
 export function useRoomSync(studentId: string, role: 'teacher' | 'student') {

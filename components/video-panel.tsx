@@ -10,9 +10,10 @@ import {
     MicOff,
     CircleDot,
     Square,
-    Music2,
-    Headphones,
     Settings,
+    AudioLines,
+    ShieldOff,
+    Gauge,
 } from "lucide-react"
 import {
     Popover,
@@ -23,6 +24,7 @@ import { MediaDeviceSettings } from "@/components/device-selector"
 import { useLocalParticipant, useTracks, ParticipantTile } from "@livekit/components-react"
 import { Track } from "livekit-client"
 import { supabase } from "@/supabase/client"
+import { Label } from "@/components/ui/label"
 
 // ============================================================================
 // Types
@@ -30,11 +32,20 @@ import { supabase } from "@/supabase/client"
 
 export type VideoAspectRatio = "widescreen" | "standard" | "portrait"
 
+export interface AudioProcessingSettings {
+    echoCancellation: boolean
+    noiseSuppression: boolean
+    autoGainControl: boolean
+}
+
 export interface VideoPanelProps {
     studentId?: string
     isStudent: boolean
     aspectRatio: VideoAspectRatio
     onAspectRatioChange: (ratio: VideoAspectRatio) => void
+    audioSettings: AudioProcessingSettings
+    onAudioSettingsChange: (settings: Partial<AudioProcessingSettings>) => void
+    controlsDisabled?: boolean
     className?: string
     showOverlay?: boolean
 }
@@ -115,6 +126,9 @@ export function VideoPanel({
     isStudent,
     aspectRatio,
     onAspectRatioChange,
+    audioSettings,
+    onAudioSettingsChange,
+    controlsDisabled = false,
     className = "",
     showOverlay = true
 }: VideoPanelProps) {
@@ -124,7 +138,6 @@ export function VideoPanel({
     // State
     const [isMuted, setIsMuted] = useState(false)
     const [isVideoOff, setIsVideoOff] = useState(false)
-    const [isMusicMode, setIsMusicMode] = useState(false) // Default: talk mode (echo cancellation ON)
     const [isRecording, setIsRecording] = useState(false)
     const [uploadStatus, setUploadStatus] = useState("")
 
@@ -142,31 +155,28 @@ export function VideoPanel({
         }
     }, [localParticipant])
 
-    // Apply audio processing settings when Music Mode changes
+    // Apply audio processing settings when they change
     useEffect(() => {
         if (!localParticipant) return
 
         const applyAudioSettings = async () => {
-            // Music mode: disable all processing for raw audio fidelity
-            // Talk mode: enable echo cancellation, noise suppression, auto gain
             const micOptions = {
-                echoCancellation: !isMusicMode,
-                noiseSuppression: !isMusicMode,
-                autoGainControl: !isMusicMode,
+                echoCancellation: audioSettings.echoCancellation,
+                noiseSuppression: audioSettings.noiseSuppression,
+                autoGainControl: audioSettings.autoGainControl,
             }
 
             try {
-                // Republish mic with new constraints
                 await localParticipant.setMicrophoneEnabled(false)
                 await localParticipant.setMicrophoneEnabled(true, micOptions)
-                console.log(`[Audio] ${isMusicMode ? 'Music' : 'Talk'} mode:`, micOptions)
+                console.log(`[Audio] Settings applied:`, micOptions)
             } catch (e) {
                 console.error("Failed to apply audio settings:", e)
             }
         }
 
         applyAudioSettings()
-    }, [isMusicMode, localParticipant])
+    }, [audioSettings.echoCancellation, audioSettings.noiseSuppression, audioSettings.autoGainControl, localParticipant])
 
     // Toggle camera via LiveKit
     const toggleCamera = async () => {
@@ -417,13 +427,62 @@ export function VideoPanel({
 
                 {/* Music Mode Toggle */}
                 <div className="flex items-center gap-2">
-                    <Music2 className="w-4 h-4 text-muted-foreground" />
-                    <Switch
-                        checked={isMusicMode}
-                        onCheckedChange={setIsMusicMode}
-                        className="data-[state=checked]:bg-primary"
-                    />
-                    <Headphones className="w-4 h-4 text-muted-foreground" />
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-8 px-2 gap-1.5 text-xs" title="Audio Processing">
+                                <AudioLines className="w-4 h-4" />
+                                Audio
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-64" side="top" align="center">
+                            <div className="grid gap-3">
+                                <div className="space-y-1">
+                                    <h4 className="font-medium leading-none text-sm">Audio Processing</h4>
+                                    <p className="text-xs text-muted-foreground">
+                                        {controlsDisabled ? "Controlled by teacher" : "Adjust audio settings"}
+                                    </p>
+                                </div>
+                                <div className="grid gap-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <ShieldOff className="w-3.5 h-3.5 text-muted-foreground" />
+                                            <Label className="text-xs">Echo Cancellation</Label>
+                                        </div>
+                                        <Switch
+                                            checked={audioSettings.echoCancellation}
+                                            onCheckedChange={(v) => onAudioSettingsChange({ echoCancellation: v })}
+                                            disabled={controlsDisabled}
+                                            className="data-[state=checked]:bg-primary scale-75"
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <AudioLines className="w-3.5 h-3.5 text-muted-foreground" />
+                                            <Label className="text-xs">Noise Suppression</Label>
+                                        </div>
+                                        <Switch
+                                            checked={audioSettings.noiseSuppression}
+                                            onCheckedChange={(v) => onAudioSettingsChange({ noiseSuppression: v })}
+                                            disabled={controlsDisabled}
+                                            className="data-[state=checked]:bg-primary scale-75"
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Gauge className="w-3.5 h-3.5 text-muted-foreground" />
+                                            <Label className="text-xs">Auto Gain Control</Label>
+                                        </div>
+                                        <Switch
+                                            checked={audioSettings.autoGainControl}
+                                            onCheckedChange={(v) => onAudioSettingsChange({ autoGainControl: v })}
+                                            disabled={controlsDisabled}
+                                            className="data-[state=checked]:bg-primary scale-75"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                 </div>
 
                 {/* Recording Controls (Teacher only) */}

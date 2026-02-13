@@ -20,7 +20,7 @@ import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
 import { useRoomSync, ActivePiece, ViewMode, AspectRatio } from "@/hooks/use-room-sync"
-import { VideoAspectRatio, VideoPanel } from "@/components/video-panel"
+import { VideoAspectRatio, VideoPanel, AudioProcessingSettings } from "@/components/video-panel"
 import { PieceXmlEditor } from "@/components/piece-xml-editor"
 import { useToast } from "@/hooks/use-toast"
 
@@ -118,6 +118,28 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
       viewMode: localViewMode,
       aspectRatio: localAspectRatio
     })
+  }
+
+  // Handler for audio settings changes
+  const handleAudioSettingsChange = (newSettings: Partial<AudioProcessingSettings>) => {
+    const updated = {
+      echoCancellation: newSettings.echoCancellation ?? settings.echoCancellation,
+      noiseSuppression: newSettings.noiseSuppression ?? settings.noiseSuppression,
+      autoGainControl: newSettings.autoGainControl ?? settings.autoGainControl,
+    }
+    if (!isStudent && settings.teacherControlEnabled) {
+      // Teacher with control: broadcast to students
+      setRoomSettings(updated)
+    } else if (!isControlled) {
+      // Not controlled: update locally via room sync
+      setRoomSettings(updated)
+    }
+  }
+
+  const effectiveAudioSettings: AudioProcessingSettings = {
+    echoCancellation: settings.echoCancellation,
+    noiseSuppression: settings.noiseSuppression,
+    autoGainControl: settings.autoGainControl,
   }
 
   const isMobile = useIsMobile()
@@ -311,6 +333,9 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       isStudent={isStudent}
                       aspectRatio={effectiveAspectRatio as VideoAspectRatio}
                       onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
+                      audioSettings={effectiveAudioSettings}
+                      onAudioSettingsChange={handleAudioSettingsChange}
+                      controlsDisabled={isControlled}
                       showOverlay={false}
                       className="h-full w-full"
                     />
@@ -328,6 +353,9 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       isStudent={isStudent}
                       aspectRatio={effectiveAspectRatio as VideoAspectRatio}
                       onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
+                      audioSettings={effectiveAudioSettings}
+                      onAudioSettingsChange={handleAudioSettingsChange}
+                      controlsDisabled={isControlled}
                       showOverlay={false}
                       className="h-full w-full"
                     />
@@ -345,6 +373,9 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       isStudent={isStudent}
                       aspectRatio={effectiveAspectRatio as VideoAspectRatio}
                       onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
+                      audioSettings={effectiveAudioSettings}
+                      onAudioSettingsChange={handleAudioSettingsChange}
+                      controlsDisabled={isControlled}
                       showOverlay={false}
                       className="h-full w-full"
                     />
@@ -374,6 +405,9 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                   isStudent={isStudent}
                   aspectRatio={effectiveAspectRatio as VideoAspectRatio}
                   onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
+                  audioSettings={effectiveAudioSettings}
+                  onAudioSettingsChange={handleAudioSettingsChange}
+                  controlsDisabled={isControlled}
                   showOverlay={!controlsDisabled}
                   className="h-full w-full"
                 />
