@@ -165,39 +165,63 @@ export function VideoPanel({
     }
 
     // --- RECORDING LOGIC ---
-    const uploadToR2 = async (blob: Blob, filename: string): Promise<string> => {
-        const response = await fetch('/api/upload-url', {
+
+    // Upload via the server-side /api/upload route (avoids R2 CORS issues)
+    const uploadRecording = async (blob: Blob, filename: string): Promise<string> => {
+        const formData = new FormData()
+        formData.append('file', blob, filename)
+        formData.append('filename', filename)
+
+        const response = await fetch('/api/upload', {
             method: 'POST',
-            body: JSON.stringify({ filename, contentType: blob.type })
+            body: formData
         })
 
-        if (!response.ok) throw new Error("Failed to get upload URL")
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}))
+            throw new Error(err.details || 'Upload failed')
+        }
 
-        const { url, cleanType } = await response.json()
+        const { url } = await response.json()
+        return url
+    }
 
-        return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest()
-            xhr.open('PUT', url)
-            xhr.setRequestHeader('Content-Type', cleanType)
+    // Finalize and upload the recording
+    const finalizeRecording = async (blob: Blob) => {
+        const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
 
-            xhr.upload.onprogress = (e) => {
-                if (e.lengthComputable) {
-                    const percent = Math.round((e.loaded / e.total) * 100)
-                    setUploadStatus(`Uploading: ${percent}%`)
-                }
-            }
+        setUploadStatus("Uploading...")
+        setIsRecording(false)
 
-            xhr.onload = () => {
-                if (xhr.status === 200) {
-                    const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${filename}`
-                    resolve(publicUrl)
-                } else {
-                    reject(new Error(`R2 rejected upload. Status: ${xhr.status}`))
-                }
-            }
-            xhr.onerror = () => reject(new Error("Network error"))
-            xhr.send(blob)
-        })
+        try {
+            const publicUrl = await uploadRecording(blob, filename)
+
+            setUploadStatus("Saving to database...")
+
+            const { error } = await supabase.from('classroom_recordings').insert({
+                student_id: studentId || 'guest',
+                teacher_id: userId,
+                filename: `Lesson - ${new Date().toLocaleDateString()}`,
+                url: publicUrl,
+                size_bytes: blob.size
+            })
+
+            if (error) throw error
+
+            setUploadStatus("")
+            alert("✅ Recording saved!")
+
+        } catch (e) {
+            console.error(e)
+            setUploadStatus("Error!")
+            alert("Upload failed. Downloading locally instead.")
+
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = filename
+            a.click()
+        }
     }
 
     const startRecording = async () => {
@@ -216,45 +240,12 @@ export function VideoPanel({
 
             recorder.onstop = async () => {
                 const blob = new Blob(chunksRef.current, { type: 'video/webm' })
-                const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
-
-                setUploadStatus("Uploading...")
-                setIsRecording(false)
-
-                try {
-                    const publicUrl = await uploadToR2(blob, filename)
-
-                    setUploadStatus("Saving to database...")
-
-                    const { error } = await supabase.from('classroom_recordings').insert({
-                        student_id: studentId || 'guest',
-                        teacher_id: userId,
-                        filename: `Lesson - ${new Date().toLocaleDateString()}`,
-                        url: publicUrl,
-                        size_bytes: blob.size
-                    })
-
-                    if (error) throw error
-
-                    setUploadStatus("")
-                    alert("✅ Recording saved!")
-
-                } catch (e) {
-                    console.error(e)
-                    setUploadStatus("Error!")
-                    alert("Upload failed. Downloading locally instead.")
-
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = filename
-                    a.click()
-                }
+                await finalizeRecording(blob)
             }
 
             mediaRecorderRef.current = recorder
             chunksRef.current = []
-            recorder.start()
+            recorder.start(1000) // Collect data every second for tab-close safety
             setIsRecording(true)
 
             stream.getVideoTracks()[0].onended = () => {
@@ -272,6 +263,44 @@ export function VideoPanel({
             mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
         }
     }
+
+    // Handle tab close / navigation away while recording
+    useEffect(() => {
+        const handleUnload = () => {
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                // Stop the recorder — this triggers onstop but it won't complete async work
+                mediaRecorderRef.current.stop()
+                mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+
+                // Build blob from whatever chunks we have so far
+                if (chunksRef.current.length > 0) {
+                    const blob = new Blob(chunksRef.current, { type: 'video/webm' })
+                    const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
+
+                    // Use sendBeacon for reliable delivery during page unload
+                    const formData = new FormData()
+                    formData.append('file', blob, filename)
+                    formData.append('filename', filename)
+                    navigator.sendBeacon('/api/upload', formData)
+                }
+            }
+        }
+
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                e.preventDefault()
+                // Show browser's built-in "are you sure?" dialog
+            }
+        }
+
+        window.addEventListener('beforeunload', handleBeforeUnload)
+        window.addEventListener('pagehide', handleUnload)
+
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload)
+            window.removeEventListener('pagehide', handleUnload)
+        }
+    }, [studentId])
 
     const handleRecordClick = () => {
         if (isRecording) {
