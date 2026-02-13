@@ -10,6 +10,7 @@ import { Music, Menu } from "lucide-react"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react"
 import "@livekit/components-styles"
+import { AudioUnlockOverlay } from "@/components/audio-unlock-overlay"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 
@@ -171,6 +172,7 @@ function MusicStudioContent() {
           )}
           {currentView === "recital" && <RecitalStage />}
           <RoomAudioRenderer />
+          <AudioUnlockOverlay />
         </LiveKitRoom>
       </main>
     </div>
