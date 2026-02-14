@@ -61,6 +61,11 @@ export function SheetMusicPanel({
     // Master Performance Playback State
     const [isPlayingSample, setIsPlayingSample] = useState(false)
     const masterAudioRef = useRef<HTMLAudioElement>(null)
+    const masterVideoRef = useRef<HTMLVideoElement>(null)
+
+    // Waterfall: Video > Animation > Static
+    const hasMasterVideo = !!piece?.reference_video_url
+    const hasMasterAudio = !!piece?.reference_audio_url
 
     // Tool State
     const [activeTool, setActiveTool] = useState<'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | 'nudge' | null>(
@@ -424,7 +429,7 @@ export function SheetMusicPanel({
                         canRedo={canRedo}
                     />
                     <div className="flex items-center gap-4">
-                        {piece?.reference_audio_url && (
+                        {(hasMasterVideo || hasMasterAudio) && (
                             <Button
                                 variant={isPlayingSample ? "destructive" : "secondary"}
                                 size="sm"
@@ -433,8 +438,16 @@ export function SheetMusicPanel({
                                     const next = !isPlayingSample
                                     setIsPlayingSample(next)
                                     if (next) {
-                                        masterAudioRef.current?.play()
+                                        if (hasMasterVideo) {
+                                            masterVideoRef.current?.play()
+                                        } else {
+                                            masterAudioRef.current?.play()
+                                        }
                                     } else {
+                                        if (masterVideoRef.current) {
+                                            masterVideoRef.current.pause()
+                                            masterVideoRef.current.currentTime = 0
+                                        }
                                         if (masterAudioRef.current) {
                                             masterAudioRef.current.pause()
                                             masterAudioRef.current.currentTime = 0
@@ -443,7 +456,9 @@ export function SheetMusicPanel({
                                 }}
                             >
                                 {isPlayingSample ? (
-                                    <><Square className="w-3 h-3" /> Stop</>
+                                    <><Square className="w-3 h-3" /> Back to Practice</>
+                                ) : hasMasterVideo ? (
+                                    <><Play className="w-3 h-3" /> 🎥 Watch Master Performance</>
                                 ) : (
                                     <><Play className="w-3 h-3" /> Play Master Performance</>
                                 )}
@@ -466,13 +481,25 @@ export function SheetMusicPanel({
                 onScroll={handleContainerScroll}
                 className={`flex-1 overflow-x-auto overflow-y-auto relative bg-zinc-900 ${(activeTool !== 'scroll' && activeTool !== null && !readOnly) ? 'touch-none' : ''}`}
             >
-                {isPlayingSample && piece?.reference_audio_url ? (
-                    /* Master Performance Mode: Animated ScrollView */
+                {isPlayingSample && hasMasterVideo ? (
+                    /* PRIORITY A: Master Video */
+                    <div className="absolute inset-0 bg-black flex items-center justify-center z-10">
+                        <video
+                            ref={masterVideoRef}
+                            src={piece!.reference_video_url!}
+                            controls
+                            autoPlay
+                            onEnded={() => setIsPlayingSample(false)}
+                            className="w-full h-full object-contain"
+                        />
+                    </div>
+                ) : isPlayingSample && hasMasterAudio ? (
+                    /* PRIORITY B: Animated ScrollView */
                     <div className="w-full h-full">
                         <ScrollView
                             audioRef={masterAudioRef as React.RefObject<HTMLAudioElement>}
-                            anchors={piece.reference_anchors || []}
-                            beatAnchors={piece.reference_beat_anchors || []}
+                            anchors={piece!.reference_anchors || []}
+                            beatAnchors={piece!.reference_beat_anchors || []}
                             mode="PLAYBACK"
                             musicXmlUrl={xmlUrl}
                             revealMode="NOTE"
@@ -487,7 +514,7 @@ export function SheetMusicPanel({
                         />
                     </div>
                 ) : (
-                    /* Normal Annotation Mode */
+                    /* DEFAULT: Normal Annotation Mode */
                     <div className="bg-white" style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
                         <div ref={containerRef} className="absolute inset-0" />
                         {isLoaded && isStateLoaded && (

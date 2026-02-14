@@ -10,6 +10,7 @@ export interface Piece {
     mp3_url?: string
     created_at: string
     reference_audio_url?: string | null
+    reference_video_url?: string | null
     reference_anchors?: any[] | null
     reference_beat_anchors?: any[] | null
     reference_subdivision?: number
