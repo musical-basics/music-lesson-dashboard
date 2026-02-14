@@ -226,13 +226,15 @@ export function VideoPanel({
     const finalizeRecording = async (blob: Blob) => {
         const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
 
-        setUploadStatus("Uploading...")
+        setUploadStatus("Uploading to Cloud...")
         setIsRecording(false)
 
         try {
+            // 1. Upload to R2
             const publicUrl = await uploadRecording(blob, filename)
 
-            setUploadStatus("Saving to database...")
+            // 2. Save to Local History
+            setUploadStatus("Saving to history...")
 
             const { error } = await supabase.from('classroom_recordings').insert({
                 student_id: studentId || 'guest',
@@ -244,8 +246,20 @@ export function VideoPanel({
 
             if (error) throw error
 
+            // 3. Notify Piano Studio
+            setUploadStatus("Syncing with Studio...")
+            await fetch('/api/integrations/piano-studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    studentId: studentId,
+                    recordingUrl: publicUrl,
+                    filename: filename
+                })
+            });
+
             setUploadStatus("")
-            alert("✅ Recording saved!")
+            alert("✅ Recording saved and synced to student profile!")
 
         } catch (e) {
             console.error(e)
