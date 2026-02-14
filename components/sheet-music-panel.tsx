@@ -3,13 +3,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import type { OpenSheetMusicDisplay as OSMDClass } from 'opensheetmusicdisplay'
 import { AnnotationRail, AnnotationRailHandle } from './annotation-rail'
 import { AnnotationToolbar, TextPreset, DEFAULT_PRESETS } from './annotation-toolbar'
-import { Loader2, Cloud } from 'lucide-react'
+import { Loader2, Cloud, Play, Square } from 'lucide-react'
 import { useAnnotationHistory } from '@/hooks/use-annotation-history'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useSvgNudge } from "@/hooks/use-svg-nudge"
 import { SvgMeasureInspector } from "@/components/svg-measure-inspector"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
+import { ScrollView } from "@/components/score-follower/scroll-view"
+import { Piece } from "@/types/piece"
 
 interface SheetMusicPanelProps {
     xmlUrl: string
@@ -17,6 +19,7 @@ interface SheetMusicPanelProps {
     studentId: string
     isStudent?: boolean
     readOnly?: boolean
+    piece?: Piece
 }
 
 type BookmarkData = {
@@ -29,7 +32,8 @@ export function SheetMusicPanel({
     songId,
     studentId,
     isStudent = false,
-    readOnly = false
+    readOnly = false,
+    piece
 }: SheetMusicPanelProps) {
     const { toast } = useToast()
 
@@ -53,6 +57,10 @@ export function SheetMusicPanel({
     const { offsets, applyOffsetsToSvg, updateOffset, saveOffsets, getElementsInMeasure } = useSvgNudge(songId)
 
     const isMobile = useIsMobile()
+
+    // Master Performance Playback State
+    const [isPlayingSample, setIsPlayingSample] = useState(false)
+    const masterAudioRef = useRef<HTMLAudioElement>(null)
 
     // Tool State
     const [activeTool, setActiveTool] = useState<'scroll' | 'select' | 'pen' | 'highlighter' | 'eraser' | 'text' | 'nudge' | null>(
@@ -416,6 +424,31 @@ export function SheetMusicPanel({
                         canRedo={canRedo}
                     />
                     <div className="flex items-center gap-4">
+                        {piece?.reference_audio_url && (
+                            <Button
+                                variant={isPlayingSample ? "destructive" : "secondary"}
+                                size="sm"
+                                className="h-7 px-3 gap-1.5 text-xs"
+                                onClick={() => {
+                                    const next = !isPlayingSample
+                                    setIsPlayingSample(next)
+                                    if (next) {
+                                        masterAudioRef.current?.play()
+                                    } else {
+                                        if (masterAudioRef.current) {
+                                            masterAudioRef.current.pause()
+                                            masterAudioRef.current.currentTime = 0
+                                        }
+                                    }
+                                }}
+                            >
+                                {isPlayingSample ? (
+                                    <><Square className="w-3 h-3" /> Stop</>
+                                ) : (
+                                    <><Play className="w-3 h-3" /> Play Master Performance</>
+                                )}
+                            </Button>
+                        )}
                         {!isLoaded && (
                             <div className="flex items-center gap-2 text-indigo-400 text-xs animate-pulse">
                                 <Loader2 className="w-3 h-3 animate-spin" /> Processing Score...
@@ -433,26 +466,59 @@ export function SheetMusicPanel({
                 onScroll={handleContainerScroll}
                 className={`flex-1 overflow-x-auto overflow-y-auto relative bg-zinc-900 ${(activeTool !== 'scroll' && activeTool !== null && !readOnly) ? 'touch-none' : ''}`}
             >
-                <div className="bg-white" style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
-                    <div ref={containerRef} className="absolute inset-0" />
-                    {isLoaded && isStateLoaded && (
-                        <div className={`absolute inset-0 ${activeTool === 'nudge' ? 'pointer-events-none' : ''}`}>
-                            <AnnotationRail
-                                ref={railRef}
-                                totalWidth={dimensions.width + 200}
-                                height={dimensions.height}
-                                activeTool={activeTool as any}
-                                clearTrigger={clearTrigger}
-                                data={data}
-                                onSave={handleAnnotationSave}
-                                color={penColor}
-                                textSize={textSize}
-                                readOnly={readOnly}
-                            />
-                        </div>
-                    )}
-                </div>
+                {isPlayingSample && piece?.reference_audio_url ? (
+                    /* Master Performance Mode: Animated ScrollView */
+                    <div className="w-full h-full">
+                        <ScrollView
+                            audioRef={masterAudioRef as React.RefObject<HTMLAudioElement>}
+                            anchors={piece.reference_anchors || []}
+                            beatAnchors={piece.reference_beat_anchors || []}
+                            mode="PLAYBACK"
+                            musicXmlUrl={xmlUrl}
+                            revealMode="NOTE"
+                            popEffect={true}
+                            darkMode={false}
+                            highlightNote={true}
+                            glowEffect={true}
+                            jumpEffect={false}
+                            cursorPosition={0.3}
+                            isLocked={true}
+                            curtainLookahead={0.5}
+                        />
+                    </div>
+                ) : (
+                    /* Normal Annotation Mode */
+                    <div className="bg-white" style={{ width: isLoaded ? dimensions.width + 200 : '100%', height: isLoaded ? dimensions.height : '100%', position: 'relative' }}>
+                        <div ref={containerRef} className="absolute inset-0" />
+                        {isLoaded && isStateLoaded && (
+                            <div className={`absolute inset-0 ${activeTool === 'nudge' ? 'pointer-events-none' : ''}`}>
+                                <AnnotationRail
+                                    ref={railRef}
+                                    totalWidth={dimensions.width + 200}
+                                    height={dimensions.height}
+                                    activeTool={activeTool as any}
+                                    clearTrigger={clearTrigger}
+                                    data={data}
+                                    onSave={handleAnnotationSave}
+                                    color={penColor}
+                                    textSize={textSize}
+                                    readOnly={readOnly}
+                                />
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
+
+            {/* Hidden Audio Player for Master Performance */}
+            {piece?.reference_audio_url && (
+                <audio
+                    ref={masterAudioRef}
+                    src={piece.reference_audio_url}
+                    className="hidden"
+                    onEnded={() => setIsPlayingSample(false)}
+                />
+            )}
 
             {/* Bookmarks Bar */}
             {isLoaded && bookmarks.length > 0 && (

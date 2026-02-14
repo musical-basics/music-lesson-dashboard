@@ -316,6 +316,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                           songId={activePiece.id}
                           studentId={studentId || "student-1"}
                           isStudent={isStudent}
+                          piece={activePiece as Piece}
                         />
                       ) : (
                         <div className="flex items-center justify-center h-full text-zinc-500">
@@ -422,6 +423,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                     studentId={studentId || "student-1"}
                     isStudent={isStudent}
                     readOnly={isControlled}
+                    piece={activePiece as Piece}
                   />
                 ) : (
                   <div className="flex items-center justify-center h-full text-zinc-500">
