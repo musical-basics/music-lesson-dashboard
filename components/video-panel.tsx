@@ -202,25 +202,39 @@ export function VideoPanel({
 
     // --- RECORDING LOGIC ---
 
-    // Upload via the server-side /api/upload route (avoids R2 CORS issues)
-    const uploadRecording = async (blob: Blob, filename: string): Promise<string> => {
-        const formData = new FormData()
-        formData.append('file', blob, filename)
-        formData.append('filename', filename)
-
-        const response = await fetch('/api/upload', {
+    // Get a presigned URL from the server
+    const getPresignedUrl = async (filename: string, contentType: string) => {
+        const response = await fetch('/api/upload-url', {
             method: 'POST',
-            body: formData
-        })
+            body: JSON.stringify({ filename, contentType })
+        });
 
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({}))
-            throw new Error(err.details || 'Upload failed')
-        }
+        if (!response.ok) throw new Error("Failed to get upload URL");
+        return response.json(); // Returns { url, cleanType }
+    };
 
-        const { url } = await response.json()
-        return url
-    }
+    // Upload DIRECTLY to Cloudflare R2 (bypasses Vercel's 4.5MB limit)
+    const uploadRecording = async (blob: Blob, filename: string): Promise<string> => {
+        const { url, cleanType } = await getPresignedUrl(filename, blob.type);
+
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', url);
+            xhr.setRequestHeader('Content-Type', cleanType);
+
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${filename}`;
+                    resolve(publicUrl);
+                } else {
+                    reject(new Error(`R2 Upload failed: ${xhr.statusText}`));
+                }
+            };
+
+            xhr.onerror = () => reject(new Error("Network error during R2 upload"));
+            xhr.send(blob);
+        });
+    };
 
     // Finalize and upload the recording
     const finalizeRecording = async (blob: Blob) => {
