@@ -327,7 +327,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                   </div>
                 </div>
 
-                <div className="hidden lg:flex lg:w-[30%] p-3 lg:p-4 lg:pl-0 flex-col gap-3 lg:gap-4">
+                <div className="flex w-[35%] lg:w-[30%] p-3 lg:p-4 lg:pl-0 flex-col gap-3 lg:gap-4">
                   <div className="h-full w-full">
                     <VideoPanel
                       studentId={studentId}
@@ -439,7 +439,6 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 onClick={() => setShowSheetMusic(!showSheetMusic)}
                 size="lg"
                 className="rounded-full shadow-xl font-bold gap-2"
-                disabled={controlsDisabled}
               >
                 {showSheetMusic ? (
                   <>
