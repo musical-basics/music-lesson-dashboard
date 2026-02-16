@@ -24,7 +24,7 @@ import {
 import { MediaDeviceSettings } from "@/components/device-selector"
 import { useLocalParticipant, useTracks, ParticipantTile } from "@livekit/components-react"
 import { Track } from "livekit-client"
-import { supabase } from "@/supabase/client"
+
 import { Label } from "@/components/ui/label"
 
 // ============================================================================
@@ -146,9 +146,19 @@ export function VideoPanel({
     const [isRecording, setIsRecording] = useState(false)
     const [uploadStatus, setUploadStatus] = useState("")
 
-    // Refs
+    // Refs for recording
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-    const chunksRef = useRef<Blob[]>([])
+    const chunksRef = useRef<Blob[]>([]) // Buffer of chunks not yet uploaded
+    const totalSizeRef = useRef(0)
+
+    // Multipart upload state refs
+    const uploadIdRef = useRef<string | null>(null)
+    const uploadKeyRef = useRef<string | null>(null)
+    const uploadedPartsRef = useRef<{ PartNumber: number; ETag: string }[]>([])
+    const partCounterRef = useRef(0)
+    const isFlushingRef = useRef(false)
+
+    const FLUSH_THRESHOLD = 5 * 1024 * 1024 // 5MB minimum for R2 multipart parts
 
     const userId = "teacher-1" // TODO: Get from auth context
 
@@ -205,92 +215,54 @@ export function VideoPanel({
         }
     }
 
-    // --- RECORDING LOGIC ---
+    // --- PROGRESSIVE RECORDING LOGIC (R2 Multipart Upload) ---
 
-    // Get a presigned URL from the server
-    const getPresignedUrl = async (filename: string, contentType: string) => {
-        const response = await fetch('/api/upload-url', {
-            method: 'POST',
-            body: JSON.stringify({ filename, contentType })
-        });
+    // Flush buffer: combine buffered chunks into one part and upload
+    const flushBuffer = async () => {
+        if (isFlushingRef.current || chunksRef.current.length === 0) return
+        if (!uploadIdRef.current || !uploadKeyRef.current) return
 
-        if (!response.ok) throw new Error("Failed to get upload URL");
-        return response.json(); // Returns { url, cleanType }
-    };
-
-    // Upload DIRECTLY to Cloudflare R2 (bypasses Vercel's 4.5MB limit)
-    const uploadRecording = async (blob: Blob, filename: string): Promise<string> => {
-        const { url, cleanType } = await getPresignedUrl(filename, blob.type);
-
-        return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('PUT', url);
-            xhr.setRequestHeader('Content-Type', cleanType);
-
-            xhr.onload = () => {
-                if (xhr.status === 200) {
-                    const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${filename}`;
-                    resolve(publicUrl);
-                } else {
-                    reject(new Error(`R2 Upload failed: ${xhr.statusText}`));
-                }
-            };
-
-            xhr.onerror = () => reject(new Error("Network error during R2 upload"));
-            xhr.send(blob);
-        });
-    };
-
-    // Finalize and upload the recording
-    const finalizeRecording = async (blob: Blob) => {
-        const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
-
-        setUploadStatus("Uploading to Cloud...")
-        setIsRecording(false)
+        isFlushingRef.current = true
+        const chunksToUpload = [...chunksRef.current]
+        chunksRef.current = []
 
         try {
-            // 1. Upload to R2
-            const publicUrl = await uploadRecording(blob, filename)
+            const blob = new Blob(chunksToUpload, { type: 'video/webm' })
+            partCounterRef.current += 1
+            const partNumber = partCounterRef.current
 
-            // 2. Save to Local History
-            setUploadStatus("Saving to history...")
+            console.log(`[Recording] Flushing part ${partNumber} (${(blob.size / 1024 / 1024).toFixed(2)} MB)`)
 
-            const { error } = await supabase.from('classroom_recordings').insert({
-                student_id: studentId || 'guest',
-                teacher_id: userId,
-                filename: `Lesson - ${new Date().toLocaleDateString()}`,
-                url: publicUrl,
-                size_bytes: blob.size
+            const formData = new FormData()
+            formData.append('chunk', blob, `part-${partNumber}.webm`)
+            formData.append('uploadId', uploadIdRef.current)
+            formData.append('key', uploadKeyRef.current)
+            formData.append('partNumber', String(partNumber))
+
+            const response = await fetch('/api/recording/upload-part', {
+                method: 'POST',
+                body: formData,
             })
 
-            if (error) throw error
+            if (!response.ok) throw new Error(`Part upload failed: ${response.statusText}`)
 
-            // 3. Notify Piano Studio
-            setUploadStatus("Syncing with Studio...")
-            await fetch('/api/integrations/piano-studio', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    studentId: studentId,
-                    recordingUrl: publicUrl,
-                    filename: filename
-                })
-            });
+            const { eTag } = await response.json()
+            uploadedPartsRef.current.push({ PartNumber: partNumber, ETag: eTag })
+            totalSizeRef.current += blob.size
 
-            setUploadStatus("")
-            alert("✅ Recording saved and synced to student profile!")
-
+            console.log(`[Recording] Part ${partNumber} uploaded successfully`)
         } catch (e) {
-            console.error(e)
-            setUploadStatus("Error!")
-            alert("Upload failed. Downloading locally instead.")
-
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = filename
-            a.click()
+            console.error("[Recording] Buffer flush failed:", e)
+            // Put chunks back for retry
+            chunksRef.current = [...chunksToUpload, ...chunksRef.current]
+        } finally {
+            isFlushingRef.current = false
         }
+    }
+
+    // Get the current buffer size
+    const getBufferSize = () => {
+        return chunksRef.current.reduce((total, chunk) => total + chunk.size, 0)
     }
 
     const startRecording = async () => {
@@ -301,21 +273,94 @@ export function VideoPanel({
                 preferCurrentTab: true
             } as any)
 
+            // 1. Initiate multipart upload on R2
+            const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
+            setUploadStatus("Starting...")
+
+            const startResponse = await fetch('/api/recording/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename }),
+            })
+
+            if (!startResponse.ok) throw new Error("Failed to start multipart upload")
+
+            const { uploadId, key } = await startResponse.json()
+            uploadIdRef.current = uploadId
+            uploadKeyRef.current = key
+            uploadedPartsRef.current = []
+            partCounterRef.current = 0
+            totalSizeRef.current = 0
+            chunksRef.current = []
+
+            console.log(`[Recording] Multipart upload started: ${key} (${uploadId})`)
+
+            // 2. Start MediaRecorder
             const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' })
 
             recorder.ondataavailable = (e) => {
-                if (e.data.size > 0) chunksRef.current.push(e.data)
+                if (e.data.size > 0) {
+                    chunksRef.current.push(e.data)
+
+                    // Auto-flush when buffer exceeds threshold
+                    if (getBufferSize() >= FLUSH_THRESHOLD) {
+                        flushBuffer()
+                    }
+                }
             }
 
             recorder.onstop = async () => {
-                const blob = new Blob(chunksRef.current, { type: 'video/webm' })
-                await finalizeRecording(blob)
+                console.log("[Recording] Recorder stopped, finalizing...")
+                setUploadStatus("Finalizing...")
+
+                try {
+                    // Build final chunk from remaining buffer
+                    const finalBlob = chunksRef.current.length > 0
+                        ? new Blob(chunksRef.current, { type: 'video/webm' })
+                        : null
+                    chunksRef.current = []
+
+                    // Send finalize request with any remaining data
+                    const formData = new FormData()
+                    formData.append('uploadId', uploadIdRef.current!)
+                    formData.append('key', uploadKeyRef.current!)
+                    formData.append('parts', JSON.stringify(uploadedPartsRef.current))
+                    formData.append('studentId', studentId || 'guest')
+                    formData.append('teacherId', userId)
+                    formData.append('totalSize', String(totalSizeRef.current + (finalBlob?.size || 0)))
+
+                    if (finalBlob && finalBlob.size > 0) {
+                        formData.append('finalChunk', finalBlob, 'final.webm')
+                    }
+
+                    const response = await fetch('/api/recording/finalize', {
+                        method: 'POST',
+                        body: formData,
+                    })
+
+                    if (!response.ok) throw new Error("Finalize failed")
+
+                    setUploadStatus("")
+                    setIsRecording(false)
+                    alert("✅ Recording saved!")
+                } catch (e) {
+                    console.error("[Recording] Finalize error:", e)
+                    setUploadStatus("Error!")
+                    setIsRecording(false)
+                }
+
+                // Reset refs
+                uploadIdRef.current = null
+                uploadKeyRef.current = null
+                uploadedPartsRef.current = []
+                partCounterRef.current = 0
+                totalSizeRef.current = 0
             }
 
             mediaRecorderRef.current = recorder
-            chunksRef.current = []
-            recorder.start(1000) // Collect data every second for tab-close safety
+            recorder.start(1000) // Collect data every second
             setIsRecording(true)
+            setUploadStatus("")
 
             stream.getVideoTracks()[0].onended = () => {
                 stopRecording()
@@ -323,6 +368,7 @@ export function VideoPanel({
 
         } catch (err) {
             console.error("Error starting recording:", err)
+            setUploadStatus("")
         }
     }
 
@@ -337,28 +383,33 @@ export function VideoPanel({
     useEffect(() => {
         const handleUnload = () => {
             if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-                // Stop the recorder — this triggers onstop but it won't complete async work
                 mediaRecorderRef.current.stop()
                 mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+            }
 
-                // Build blob from whatever chunks we have so far
+            // Best-effort finalize via sendBeacon with whatever parts are already uploaded
+            if (uploadIdRef.current && uploadKeyRef.current && uploadedPartsRef.current.length > 0) {
+                const formData = new FormData()
+                formData.append('uploadId', uploadIdRef.current)
+                formData.append('key', uploadKeyRef.current)
+                formData.append('parts', JSON.stringify(uploadedPartsRef.current))
+                formData.append('studentId', studentId || 'guest')
+                formData.append('teacherId', userId)
+                formData.append('totalSize', String(totalSizeRef.current))
+
+                // Include any remaining buffered chunks as final part
                 if (chunksRef.current.length > 0) {
-                    const blob = new Blob(chunksRef.current, { type: 'video/webm' })
-                    const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
-
-                    // Use sendBeacon for reliable delivery during page unload
-                    const formData = new FormData()
-                    formData.append('file', blob, filename)
-                    formData.append('filename', filename)
-                    navigator.sendBeacon('/api/upload', formData)
+                    const finalBlob = new Blob(chunksRef.current, { type: 'video/webm' })
+                    formData.append('finalChunk', finalBlob, 'final.webm')
                 }
+
+                navigator.sendBeacon('/api/recording/finalize', formData)
             }
         }
 
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
             if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
                 e.preventDefault()
-                // Show browser's built-in "are you sure?" dialog
             }
         }
 
