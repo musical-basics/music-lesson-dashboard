@@ -14,6 +14,7 @@ import {
     AudioLines,
     ShieldOff,
     Gauge,
+    UserCog,
 } from "lucide-react"
 import {
     Popover,
@@ -48,6 +49,8 @@ export interface VideoPanelProps {
     controlsDisabled?: boolean
     className?: string
     showOverlay?: boolean
+    studentAudioSettings?: AudioProcessingSettings
+    onStudentAudioSettingsChange?: (settings: Partial<AudioProcessingSettings>) => void
 }
 
 // ============================================================================
@@ -130,7 +133,9 @@ export function VideoPanel({
     onAudioSettingsChange,
     controlsDisabled = false,
     className = "",
-    showOverlay = true
+    showOverlay = true,
+    studentAudioSettings,
+    onStudentAudioSettingsChange
 }: VideoPanelProps) {
     // LiveKit local participant for camera/mic control
     const { localParticipant } = useLocalParticipant()
@@ -511,6 +516,63 @@ export function VideoPanel({
                             </div>
                         </PopoverContent>
                     </Popover>
+
+                    {/* Student Audio (Teacher only) */}
+                    {!isStudent && studentAudioSettings && onStudentAudioSettingsChange && (
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 px-2 gap-1.5 text-xs" title="Student Audio">
+                                    <UserCog className="w-4 h-4" />
+                                    Student
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-64" side="top" align="center">
+                                <div className="grid gap-3">
+                                    <div className="space-y-1">
+                                        <h4 className="font-medium leading-none text-sm">Student Audio</h4>
+                                        <p className="text-xs text-muted-foreground">
+                                            Control student&apos;s audio processing
+                                        </p>
+                                    </div>
+                                    <div className="grid gap-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <ShieldOff className="w-3.5 h-3.5 text-muted-foreground" />
+                                                <Label className="text-xs">Echo Cancellation</Label>
+                                            </div>
+                                            <Switch
+                                                checked={studentAudioSettings.echoCancellation}
+                                                onCheckedChange={(v) => onStudentAudioSettingsChange({ echoCancellation: v })}
+                                                className="data-[state=checked]:bg-primary scale-75"
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <AudioLines className="w-3.5 h-3.5 text-muted-foreground" />
+                                                <Label className="text-xs">Noise Suppression</Label>
+                                            </div>
+                                            <Switch
+                                                checked={studentAudioSettings.noiseSuppression}
+                                                onCheckedChange={(v) => onStudentAudioSettingsChange({ noiseSuppression: v })}
+                                                className="data-[state=checked]:bg-primary scale-75"
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <Gauge className="w-3.5 h-3.5 text-muted-foreground" />
+                                                <Label className="text-xs">Auto Gain Control</Label>
+                                            </div>
+                                            <Switch
+                                                checked={studentAudioSettings.autoGainControl}
+                                                onCheckedChange={(v) => onStudentAudioSettingsChange({ autoGainControl: v })}
+                                                className="data-[state=checked]:bg-primary scale-75"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+                    )}
                 </div>
 
                 {/* Recording Controls (Teacher only) */}

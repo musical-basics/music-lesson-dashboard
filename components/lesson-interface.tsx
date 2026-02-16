@@ -42,7 +42,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
   )
 
   // Local view state (for teacher, or for student when not controlled)
-  const [localViewMode, setLocalViewMode] = useState<ViewMode>("sheet-music")
+  const [localViewMode, setLocalViewMode] = useState<ViewMode>("dual-widescreen")
   const [localAspectRatio, setLocalAspectRatio] = useState<AspectRatio>("widescreen")
   const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
   const [isEditingXml, setIsEditingXml] = useState(false)
@@ -136,10 +136,33 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
     }
   }
 
-  const effectiveAudioSettings: AudioProcessingSettings = {
-    echoCancellation: settings.echoCancellation,
-    noiseSuppression: settings.noiseSuppression,
-    autoGainControl: settings.autoGainControl,
+  // Handler for teacher controlling student's audio settings
+  const handleStudentAudioSettingsChange = (newSettings: Partial<AudioProcessingSettings>) => {
+    if (isStudent) return // Only teacher can change student audio
+    setRoomSettings({
+      studentEchoCancellation: newSettings.echoCancellation ?? settings.studentEchoCancellation,
+      studentNoiseSuppression: newSettings.noiseSuppression ?? settings.studentNoiseSuppression,
+      studentAutoGainControl: newSettings.autoGainControl ?? settings.studentAutoGainControl,
+    })
+  }
+
+  // Teacher sees their own settings; student uses student-specific fields when controlled
+  const effectiveAudioSettings: AudioProcessingSettings = isControlled
+    ? {
+      echoCancellation: settings.studentEchoCancellation,
+      noiseSuppression: settings.studentNoiseSuppression,
+      autoGainControl: settings.studentAutoGainControl,
+    }
+    : {
+      echoCancellation: settings.echoCancellation,
+      noiseSuppression: settings.noiseSuppression,
+      autoGainControl: settings.autoGainControl,
+    }
+
+  const studentAudioSettings: AudioProcessingSettings = {
+    echoCancellation: settings.studentEchoCancellation,
+    noiseSuppression: settings.studentNoiseSuppression,
+    autoGainControl: settings.studentAutoGainControl,
   }
 
   const isMobile = useIsMobile()
@@ -339,6 +362,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       controlsDisabled={isControlled}
                       showOverlay={false}
                       className="h-full w-full"
+                      studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
+                      onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                     />
                   </div>
                 </div>
@@ -359,6 +384,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       controlsDisabled={isControlled}
                       showOverlay={false}
                       className="h-full w-full"
+                      studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
+                      onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                     />
                   </div>
                 </div>
@@ -379,6 +406,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       controlsDisabled={isControlled}
                       showOverlay={false}
                       className="h-full w-full"
+                      studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
+                      onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                     />
                   </div>
                 </div>
@@ -411,6 +440,8 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                   controlsDisabled={isControlled}
                   showOverlay={!controlsDisabled}
                   className="h-full w-full"
+                  studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
+                  onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                 />
 
               </div>

@@ -28,6 +28,9 @@ export interface RoomSettings {
     echoCancellation: boolean
     noiseSuppression: boolean
     autoGainControl: boolean
+    studentEchoCancellation: boolean
+    studentNoiseSuppression: boolean
+    studentAutoGainControl: boolean
 }
 
 export interface RoomState {
@@ -36,12 +39,15 @@ export interface RoomState {
 }
 
 const DEFAULT_SETTINGS: RoomSettings = {
-    viewMode: "sheet-music",
+    viewMode: "dual-widescreen",
     aspectRatio: "widescreen",
     teacherControlEnabled: false,
     echoCancellation: true,
     noiseSuppression: false,
-    autoGainControl: false
+    autoGainControl: false,
+    studentEchoCancellation: true,
+    studentNoiseSuppression: false,
+    studentAutoGainControl: false
 }
 
 export function useRoomSync(studentId: string, role: 'teacher' | 'student') {
