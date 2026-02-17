@@ -67,27 +67,24 @@ function VerticalVideoStack({ aspectRatio = "standard" }: { aspectRatio?: VideoA
     )
 
     const getContainerStyle = (): React.CSSProperties => {
+        // Use aspect-ratio as a max-width hint, but let flex control the height
         switch (aspectRatio) {
             case "widescreen":
                 return {
-                    aspectRatio: "16/9",
                     width: "100%",
-                    maxHeight: "100%",
+                    maxWidth: "100%",
                     margin: "auto",
                 }
             case "portrait":
                 return {
-                    aspectRatio: "9/16",
-                    height: "100%",
-                    maxWidth: "100%",
+                    maxWidth: "60%",
                     margin: "auto",
                 }
             case "standard":
             default:
                 return {
-                    aspectRatio: "4/3",
                     width: "100%",
-                    maxHeight: "100%",
+                    maxWidth: "100%",
                     margin: "auto",
                 }
         }
@@ -98,11 +95,11 @@ function VerticalVideoStack({ aspectRatio = "standard" }: { aspectRatio?: VideoA
         : "video-aspect-cover"
 
     return (
-        <div className="flex flex-col h-full w-full bg-black rounded-lg overflow-hidden items-center justify-center">
+        <div className="flex flex-col h-full w-full bg-black rounded-lg overflow-hidden">
             {tracks.map((track) => (
                 <div
                     key={track.participant.identity}
-                    className={`relative overflow-hidden ${videoStyleClass}`}
+                    className={`relative overflow-hidden flex-1 min-h-0 ${videoStyleClass}`}
                     style={getContainerStyle()}
                 >
                     <ParticipantTile
