@@ -386,6 +386,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       className="h-full w-full"
                       studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
+                      controlsPosition="right"
                     />
                   </div>
                 </div>

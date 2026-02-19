@@ -47,6 +47,7 @@ export interface VideoPanelProps {
     audioSettings: AudioProcessingSettings
     onAudioSettingsChange: (settings: Partial<AudioProcessingSettings>) => void
     controlsDisabled?: boolean
+    controlsPosition?: "bottom" | "right"
     className?: string
     showOverlay?: boolean
     studentAudioSettings?: AudioProcessingSettings
@@ -129,6 +130,7 @@ export function VideoPanel({
     audioSettings,
     onAudioSettingsChange,
     controlsDisabled = false,
+    controlsPosition = "bottom",
     className = "",
     showOverlay = true,
     studentAudioSettings,
@@ -428,9 +430,9 @@ export function VideoPanel({
     }
 
     return (
-        <div className={`flex flex-col ${className}`}>
+        <div className={`flex ${controlsPosition === 'right' ? 'flex-row' : 'flex-col'} ${className}`}>
             {/* Video Display */}
-            <div className="flex-1 relative">
+            <div className={`flex-1 relative ${controlsPosition === 'right' ? 'min-w-0' : 'min-h-0'}`}>
                 <VerticalVideoStack aspectRatio={aspectRatio} />
 
                 {/* Aspect Ratio Controls Overlay (for mobile) */}
@@ -465,9 +467,15 @@ export function VideoPanel({
             </div>
 
             {/* Controls Bar */}
-            <div className="flex items-center justify-between gap-2 p-2 bg-sidebar border-t border-border">
+            <div
+                className={
+                    controlsPosition === "right"
+                        ? "flex flex-col items-center justify-start gap-6 p-2 bg-sidebar border-l border-border w-16 overflow-y-auto"
+                        : "flex items-center justify-between gap-2 p-2 bg-sidebar border-t border-border overflow-x-auto"
+                }
+            >
                 {/* Camera/Mic Controls */}
-                <div className="flex items-center gap-1">
+                <div className={`flex ${controlsPosition === "right" ? "flex-col" : "items-center"} gap-2`}>
                     <Button
                         variant="ghost"
                         size="sm"
@@ -492,7 +500,7 @@ export function VideoPanel({
                                 <Settings className="w-4 h-4" />
                             </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-80" side="top" align="start">
+                        <PopoverContent className="w-80" side={controlsPosition === "right" ? "left" : "top"} align="start">
                             <div className="grid gap-4">
                                 <div className="space-y-2">
                                     <h4 className="font-medium leading-none">Device Settings</h4>
@@ -507,15 +515,15 @@ export function VideoPanel({
                 </div>
 
                 {/* Music Mode Toggle */}
-                <div className="flex items-center gap-2">
+                <div className={`flex ${controlsPosition === "right" ? "flex-col" : "items-center"} gap-2`}>
                     <Popover>
                         <PopoverTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 px-2 gap-1.5 text-xs" title="Audio Processing">
+                            <Button variant="ghost" size="sm" className={controlsPosition === "right" ? "w-8 h-8 p-0" : "h-8 px-2 gap-1.5 text-xs"} title="Audio Processing">
                                 <AudioLines className="w-4 h-4" />
-                                Audio
+                                {controlsPosition !== "right" && "Audio"}
                             </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-64" side="top" align="center">
+                        <PopoverContent className="w-64" side={controlsPosition === "right" ? "left" : "top"} align="center">
                             <div className="grid gap-3">
                                 <div className="space-y-1">
                                     <h4 className="font-medium leading-none text-sm">Audio Processing</h4>
@@ -569,12 +577,12 @@ export function VideoPanel({
                     {!isStudent && studentAudioSettings && onStudentAudioSettingsChange && (
                         <Popover>
                             <PopoverTrigger asChild>
-                                <Button variant="ghost" size="sm" className="h-8 px-2 gap-1.5 text-xs" title="Student Audio">
+                                <Button variant="ghost" size="sm" className={controlsPosition === "right" ? "w-8 h-8 p-0" : "h-8 px-2 gap-1.5 text-xs"} title="Student Audio">
                                     <UserCog className="w-4 h-4" />
-                                    Student
+                                    {controlsPosition !== "right" && "Student"}
                                 </Button>
                             </PopoverTrigger>
-                            <PopoverContent className="w-64" side="top" align="center">
+                            <PopoverContent className="w-64" side={controlsPosition === "right" ? "left" : "top"} align="center">
                                 <div className="grid gap-3">
                                     <div className="space-y-1">
                                         <h4 className="font-medium leading-none text-sm">Student Audio</h4>
@@ -625,9 +633,11 @@ export function VideoPanel({
 
                 {/* Recording Controls (Teacher only) */}
                 {!isStudent && (
-                    <div className="flex items-center gap-2">
+                    <div className={`flex ${controlsPosition === "right" ? "flex-col mt-auto" : "items-center"} gap-2`}>
                         {uploadStatus && (
-                            <span className="text-xs text-muted-foreground">{uploadStatus}</span>
+                            <span className="text-[10px] text-muted-foreground text-center leading-tight max-w-[48px] overflow-hidden text-ellipsis whitespace-nowrap" title={uploadStatus}>
+                                {uploadStatus}
+                            </span>
                         )}
                         <Button
                             variant={isRecording ? "destructive" : "ghost"}
