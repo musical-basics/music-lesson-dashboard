@@ -157,7 +157,7 @@ export function VideoPanel({
     const partCounterRef = useRef(0)
     const isFlushingRef = useRef(false)
 
-    const FLUSH_THRESHOLD = 5 * 1024 * 1024 // 5MB minimum for R2 multipart parts
+    const FLUSH_THRESHOLD = 4 * 1024 * 1024 // 4MB - stay under Vercel's 4.5MB payload limit
 
     const userId = "teacher-1" // TODO: Get from auth context
 
@@ -313,7 +313,17 @@ export function VideoPanel({
                 setUploadStatus("Finalizing...")
 
                 try {
-                    // Build final chunk from remaining buffer
+                    // Wait for any in-flight flush to finish
+                    while (isFlushingRef.current) {
+                        await new Promise(r => setTimeout(r, 100))
+                    }
+
+                    // Flush remaining buffer in safe-size chunks before finalizing
+                    while (chunksRef.current.length > 0 && getBufferSize() >= FLUSH_THRESHOLD) {
+                        await flushBuffer()
+                    }
+
+                    // Build final chunk from remaining buffer (guaranteed <4MB after draining)
                     const finalBlob = chunksRef.current.length > 0
                         ? new Blob(chunksRef.current, { type: 'video/webm' })
                         : null
