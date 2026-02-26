@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   Music,
   LayoutGrid,
+  Columns2,
   Maximize2,
   PictureInPicture2,
   Video,
@@ -201,6 +202,16 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 <span className="hidden sm:inline">Dual View</span>
               </Button>
               <Button
+                variant={effectiveViewMode === "dual-sidebyside" ? "default" : "ghost"}
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => handleViewModeChange("dual-sidebyside")}
+                disabled={controlsDisabled}
+              >
+                <Columns2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Side by Side</span>
+              </Button>
+              <Button
                 variant={effectiveViewMode === "picture-in-picture" ? "default" : "ghost"}
                 size="sm"
                 className="gap-1.5 text-xs"
@@ -384,6 +395,30 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       controlsDisabled={isControlled}
                       showOverlay={false}
                       className="h-full w-full"
+                      studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
+                      onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
+                      controlsPosition="right"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {effectiveViewMode === "dual-sidebyside" && (
+              <div className="h-full p-3 lg:p-4 flex flex-col gap-3 lg:gap-4">
+                <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 w-full">
+                  <div className="h-full w-full">
+                    <VideoPanel
+                      studentId={studentId}
+                      isStudent={isStudent}
+                      aspectRatio={effectiveAspectRatio as VideoAspectRatio}
+                      onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
+                      audioSettings={effectiveAudioSettings}
+                      onAudioSettingsChange={handleAudioSettingsChange}
+                      controlsDisabled={isControlled}
+                      showOverlay={false}
+                      className="h-full w-full"
+                      layout="horizontal"
                       studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                       controlsPosition="right"

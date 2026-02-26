@@ -18,7 +18,7 @@ export interface ActivePiece {
     difficulty?: string
 }
 
-export type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
+export type ViewMode = "sheet-music" | "dual-widescreen" | "dual-sidebyside" | "picture-in-picture"
 export type AspectRatio = "widescreen" | "standard" | "portrait"
 
 export interface RoomSettings {

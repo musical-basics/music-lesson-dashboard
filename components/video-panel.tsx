@@ -48,6 +48,7 @@ export interface VideoPanelProps {
     onAudioSettingsChange: (settings: Partial<AudioProcessingSettings>) => void
     controlsDisabled?: boolean
     controlsPosition?: "bottom" | "right"
+    layout?: "vertical" | "horizontal"
     className?: string
     showOverlay?: boolean
     studentAudioSettings?: AudioProcessingSettings
@@ -58,7 +59,7 @@ export interface VideoPanelProps {
 // VerticalVideoStack - Renders LiveKit video tracks
 // ============================================================================
 
-function VerticalVideoStack({ aspectRatio = "standard" }: { aspectRatio?: VideoAspectRatio }) {
+function VerticalVideoStack({ aspectRatio = "standard", layout = "vertical" }: { aspectRatio?: VideoAspectRatio; layout?: "vertical" | "horizontal" }) {
     const tracks = useTracks(
         [
             { source: Track.Source.Camera, withPlaceholder: true },
@@ -67,7 +68,16 @@ function VerticalVideoStack({ aspectRatio = "standard" }: { aspectRatio?: VideoA
         { onlySubscribed: false }
     )
 
+    const isHorizontal = layout === "horizontal"
+
     const getContainerStyle = (): React.CSSProperties => {
+        if (isHorizontal) {
+            return {
+                height: "100%",
+                maxHeight: "100%",
+                margin: "auto",
+            }
+        }
         // Use aspect-ratio as a max-width hint, but let flex control the height
         switch (aspectRatio) {
             case "widescreen":
@@ -95,12 +105,16 @@ function VerticalVideoStack({ aspectRatio = "standard" }: { aspectRatio?: VideoA
         ? "video-aspect-contain"
         : "video-aspect-cover"
 
+    const trackClass = isHorizontal
+        ? `relative overflow-hidden flex-1 min-w-0 max-w-[50%] ${videoStyleClass}`
+        : `relative overflow-hidden flex-1 min-h-0 max-h-[50%] ${videoStyleClass}`
+
     return (
-        <div className="flex flex-col h-full w-full bg-black rounded-lg overflow-hidden">
+        <div className={`flex ${isHorizontal ? 'flex-row' : 'flex-col'} h-full w-full bg-black rounded-lg overflow-hidden`}>
             {tracks.map((track) => (
                 <div
                     key={track.participant.identity}
-                    className={`relative overflow-hidden flex-1 min-h-0 max-h-[50%] ${videoStyleClass}`}
+                    className={trackClass}
                     style={getContainerStyle()}
                 >
                     <ParticipantTile
@@ -131,6 +145,7 @@ export function VideoPanel({
     onAudioSettingsChange,
     controlsDisabled = false,
     controlsPosition = "bottom",
+    layout = "vertical",
     className = "",
     showOverlay = true,
     studentAudioSettings,
@@ -443,7 +458,7 @@ export function VideoPanel({
         <div className={`flex ${controlsPosition === 'right' ? 'flex-row' : 'flex-col'} ${className}`}>
             {/* Video Display */}
             <div className={`flex-1 relative ${controlsPosition === 'right' ? 'min-w-0' : 'min-h-0'}`}>
-                <VerticalVideoStack aspectRatio={aspectRatio} />
+                <VerticalVideoStack aspectRatio={aspectRatio} layout={layout} />
 
                 {/* Aspect Ratio Controls Overlay (for mobile) */}
                 {showOverlay && (
