@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   Music,
   LayoutGrid,
+  Rows2,
   Columns2,
   Maximize2,
   PictureInPicture2,
@@ -20,7 +21,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
-import { useRoomSync, ActivePiece, ViewMode, AspectRatio } from "@/hooks/use-room-sync"
+import { useRoomSync, ActivePiece, ViewMode, AspectRatio, DualLayout } from "@/hooks/use-room-sync"
 import { VideoAspectRatio, VideoPanel, AudioProcessingSettings } from "@/components/video-panel"
 import { PieceXmlEditor } from "@/components/piece-xml-editor"
 import { useToast } from "@/hooks/use-toast"
@@ -201,16 +202,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                 <LayoutGrid className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Dual View</span>
               </Button>
-              <Button
-                variant={effectiveViewMode === "dual-sidebyside" ? "default" : "ghost"}
-                size="sm"
-                className="gap-1.5 text-xs"
-                onClick={() => handleViewModeChange("dual-sidebyside")}
-                disabled={controlsDisabled}
-              >
-                <Columns2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Side by Side</span>
-              </Button>
+
               <Button
                 variant={effectiveViewMode === "picture-in-picture" ? "default" : "ghost"}
                 size="sm"
@@ -383,30 +375,33 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
 
             {effectiveViewMode === "dual-widescreen" && (
               <div className="h-full p-3 lg:p-4 flex flex-col gap-3 lg:gap-4">
-                <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 max-w-5xl mx-auto w-full">
-                  <div className="h-full w-full">
-                    <VideoPanel
-                      studentId={studentId}
-                      isStudent={isStudent}
-                      aspectRatio={effectiveAspectRatio as VideoAspectRatio}
-                      onAspectRatioChange={(r) => handleAspectRatioChange(r as AspectRatio)}
-                      audioSettings={effectiveAudioSettings}
-                      onAudioSettingsChange={handleAudioSettingsChange}
-                      controlsDisabled={isControlled}
-                      showOverlay={false}
-                      className="h-full w-full"
-                      studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
-                      onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
-                      controlsPosition="right"
-                    />
+                {/* Layout Toggle */}
+                <div className="flex items-center justify-end gap-1">
+                  <span className="text-xs text-muted-foreground mr-1">Layout</span>
+                  <div className="flex items-center bg-secondary/50 rounded-md p-0.5">
+                    <Button
+                      variant={settings.dualLayout === "vertical" ? "default" : "ghost"}
+                      size="sm"
+                      className="h-7 px-2 text-xs gap-1"
+                      onClick={() => setRoomSettings({ dualLayout: "vertical" })}
+                      title="Top / Bottom"
+                    >
+                      <Rows2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Top / Bottom</span>
+                    </Button>
+                    <Button
+                      variant={settings.dualLayout === "horizontal" ? "default" : "ghost"}
+                      size="sm"
+                      className="h-7 px-2 text-xs gap-1"
+                      onClick={() => setRoomSettings({ dualLayout: "horizontal" })}
+                      title="Side by Side"
+                    >
+                      <Columns2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Side by Side</span>
+                    </Button>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {effectiveViewMode === "dual-sidebyside" && (
-              <div className="h-full p-3 lg:p-4 flex flex-col gap-3 lg:gap-4">
-                <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 w-full">
+                <div className="flex-1 flex flex-col justify-center gap-3 lg:gap-4 w-full min-h-0">
                   <div className="h-full w-full">
                     <VideoPanel
                       studentId={studentId}
@@ -418,7 +413,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       controlsDisabled={isControlled}
                       showOverlay={false}
                       className="h-full w-full"
-                      layout="horizontal"
+                      layout={settings.dualLayout}
                       studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                       controlsPosition="right"

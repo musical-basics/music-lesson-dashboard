@@ -18,12 +18,14 @@ export interface ActivePiece {
     difficulty?: string
 }
 
-export type ViewMode = "sheet-music" | "dual-widescreen" | "dual-sidebyside" | "picture-in-picture"
+export type ViewMode = "sheet-music" | "dual-widescreen" | "picture-in-picture"
+export type DualLayout = "vertical" | "horizontal"
 export type AspectRatio = "widescreen" | "standard" | "portrait"
 
 export interface RoomSettings {
     viewMode: ViewMode
     aspectRatio: AspectRatio
+    dualLayout: DualLayout
     teacherControlEnabled: boolean
     echoCancellation: boolean
     noiseSuppression: boolean
@@ -41,6 +43,7 @@ export interface RoomState {
 const DEFAULT_SETTINGS: RoomSettings = {
     viewMode: "dual-widescreen",
     aspectRatio: "widescreen",
+    dualLayout: "vertical",
     teacherControlEnabled: false,
     echoCancellation: true,
     noiseSuppression: false,
