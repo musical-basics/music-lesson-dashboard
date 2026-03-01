@@ -1,6 +1,11 @@
 import { S3Client, UploadPartCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
+// Allow up to 10MB body size for upload parts (default Vercel limit is 4.5MB)
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
+
 const r2 = new S3Client({
     region: "auto",
     endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,

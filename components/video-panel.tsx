@@ -231,14 +231,28 @@ export function VideoPanel({
 
     // --- PROGRESSIVE RECORDING LOGIC (R2 Multipart Upload) ---
 
-    // Flush buffer: combine buffered chunks into one part and upload
+    // Flush buffer: take up to FLUSH_THRESHOLD bytes of chunks and upload as one part
     const flushBuffer = async () => {
-        if (isFlushingRef.current || chunksRef.current.length === 0) return
+        if (isFlushingRef.current) return
+        if (chunksRef.current.length === 0) return
         if (!uploadIdRef.current || !uploadKeyRef.current) return
 
         isFlushingRef.current = true
-        const chunksToUpload = [...chunksRef.current]
-        chunksRef.current = []
+
+        // Collect only up to FLUSH_THRESHOLD worth of chunks
+        const chunksToUpload: Blob[] = []
+        let batchSize = 0
+        while (chunksRef.current.length > 0 && batchSize < FLUSH_THRESHOLD) {
+            const next = chunksRef.current[0]
+            chunksToUpload.push(next)
+            batchSize += next.size
+            chunksRef.current.shift()
+        }
+
+        if (chunksToUpload.length === 0) {
+            isFlushingRef.current = false
+            return
+        }
 
         try {
             const blob = new Blob(chunksToUpload, { type: 'video/webm' })
@@ -267,16 +281,49 @@ export function VideoPanel({
             console.log(`[Recording] Part ${partNumber} uploaded successfully`)
         } catch (e) {
             console.error("[Recording] Buffer flush failed:", e)
-            // Put chunks back for retry
+            // Put chunks back at the front for retry
             chunksRef.current = [...chunksToUpload, ...chunksRef.current]
         } finally {
             isFlushingRef.current = false
         }
     }
 
+    // Drain the entire buffer by serially flushing 4MB batches
+    const drainBuffer = async () => {
+        while (chunksRef.current.length > 0) {
+            // Wait for any in-flight flush to finish
+            while (isFlushingRef.current) {
+                await new Promise(r => setTimeout(r, 50))
+            }
+            await flushBuffer()
+        }
+    }
+
     // Get the current buffer size
     const getBufferSize = () => {
         return chunksRef.current.reduce((total, chunk) => total + chunk.size, 0)
+    }
+
+    // Pending flush flag to avoid stacking fire-and-forget calls
+    const flushQueuedRef = useRef(false)
+
+    // Schedule a flush (fire-and-forget safe: only one pending at a time)
+    const scheduleFlush = () => {
+        if (flushQueuedRef.current || isFlushingRef.current) return
+        flushQueuedRef.current = true
+            ; (async () => {
+                try {
+                    while (getBufferSize() >= FLUSH_THRESHOLD) {
+                        // Wait for any in-flight flush
+                        while (isFlushingRef.current) {
+                            await new Promise(r => setTimeout(r, 50))
+                        }
+                        await flushBuffer()
+                    }
+                } finally {
+                    flushQueuedRef.current = false
+                }
+            })()
     }
 
     const startRecording = async () => {
@@ -306,6 +353,7 @@ export function VideoPanel({
             partCounterRef.current = 0
             totalSizeRef.current = 0
             chunksRef.current = []
+            flushQueuedRef.current = false
 
             console.log(`[Recording] Multipart upload started: ${key} (${uploadId})`)
 
@@ -316,9 +364,9 @@ export function VideoPanel({
                 if (e.data.size > 0) {
                     chunksRef.current.push(e.data)
 
-                    // Auto-flush when buffer exceeds threshold
+                    // Schedule flush when buffer exceeds threshold
                     if (getBufferSize() >= FLUSH_THRESHOLD) {
-                        flushBuffer()
+                        scheduleFlush()
                     }
                 }
             }
@@ -328,17 +376,10 @@ export function VideoPanel({
                 setUploadStatus("Finalizing...")
 
                 try {
-                    // Wait for any in-flight flush to finish
-                    while (isFlushingRef.current) {
-                        await new Promise(r => setTimeout(r, 100))
-                    }
+                    // Drain ALL remaining chunks in 4MB batches
+                    await drainBuffer()
 
-                    // Flush remaining buffer in safe-size chunks before finalizing
-                    while (chunksRef.current.length > 0 && getBufferSize() >= FLUSH_THRESHOLD) {
-                        await flushBuffer()
-                    }
-
-                    // Build final chunk from remaining buffer (guaranteed <4MB after draining)
+                    // Build final chunk from any remaining buffer (should be <4MB)
                     const finalBlob = chunksRef.current.length > 0
                         ? new Blob(chunksRef.current, { type: 'video/webm' })
                         : null
