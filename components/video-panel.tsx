@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useRef, useEffect } from "react"
+import { convertWebmToMp4, uploadBlobToCloud } from "@/lib/ffmpeg-convert"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -393,68 +394,119 @@ export function VideoPanel({
             }
 
             recorder.onstop = async () => {
-                console.log("[Recording] Recorder stopped, finalizing...")
-                setUploadStatus("Saving locally...")
+                console.log("[Recording] Recorder stopped, processing...")
 
-                // --- 1. LOCAL DOWNLOAD BACKUP (immediate, before cloud upload) ---
+                // Build the full WebM blob from all recorded chunks
+                const webmBlob = allChunksRef.current.length > 0
+                    ? new Blob(allChunksRef.current, { type: 'video/webm' })
+                    : null
+                allChunksRef.current = [] // Free memory early
+                chunksRef.current = [] // Clear upload buffer too
+
+                if (!webmBlob || webmBlob.size === 0) {
+                    console.warn("[Recording] No data recorded")
+                    setUploadStatus("")
+                    setIsRecording(false)
+                    return
+                }
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+                const baseName = `lesson_${studentId || 'recording'}_${timestamp}`
+
+                // --- 1. DOWNLOAD WEBM LOCALLY ---
+                setUploadStatus("Saving .webm...")
                 try {
-                    if (allChunksRef.current.length > 0) {
-                        const fullBlob = new Blob(allChunksRef.current, { type: 'video/webm' })
-                        const url = URL.createObjectURL(fullBlob)
+                    const webmUrl = URL.createObjectURL(webmBlob)
+                    const a = document.createElement('a')
+                    a.href = webmUrl
+                    a.download = `${baseName}.webm`
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    URL.revokeObjectURL(webmUrl)
+                    console.log(`[Recording] WebM downloaded locally (${(webmBlob.size / 1024 / 1024).toFixed(1)} MB)`)
+                } catch (dlErr) {
+                    console.error("[Recording] WebM download failed:", dlErr)
+                }
+
+                // --- 2. CONVERT WEBM → MP4 ---
+                let mp4Blob: Blob | null = null
+                try {
+                    setUploadStatus("Converting to MP4...")
+                    mp4Blob = await convertWebmToMp4(webmBlob, (pct) => {
+                        setUploadStatus(`Converting: ${pct}%`)
+                    })
+                    console.log(`[Recording] MP4 conversion complete (${(mp4Blob.size / 1024 / 1024).toFixed(1)} MB)`)
+                } catch (convErr) {
+                    console.error("[Recording] MP4 conversion failed:", convErr)
+                    setUploadStatus("Conversion failed")
+                }
+
+                // --- 3. DOWNLOAD MP4 LOCALLY ---
+                if (mp4Blob) {
+                    try {
+                        setUploadStatus("Saving .mp4...")
+                        const mp4Url = URL.createObjectURL(mp4Blob)
                         const a = document.createElement('a')
-                        a.href = url
-                        a.download = `lesson_${studentId || 'recording'}_${new Date().toISOString().replace(/[:.]/g, '-')}.webm`
+                        a.href = mp4Url
+                        a.download = `${baseName}.mp4`
                         document.body.appendChild(a)
                         a.click()
                         document.body.removeChild(a)
-                        URL.revokeObjectURL(url)
-                        console.log(`[Recording] Local backup downloaded (${(fullBlob.size / 1024 / 1024).toFixed(1)} MB)`)
+                        URL.revokeObjectURL(mp4Url)
+                        console.log(`[Recording] MP4 downloaded locally`)
+                    } catch (dlErr) {
+                        console.error("[Recording] MP4 download failed:", dlErr)
                     }
-                } catch (dlErr) {
-                    console.error("[Recording] Local download failed:", dlErr)
                 }
-                allChunksRef.current = [] // Free memory
 
-                // --- 2. CLOUD UPLOAD FINALIZATION ---
-                setUploadStatus("Finalizing...")
+                // --- 4. UPLOAD MP4 TO CLOUD ---
+                if (mp4Blob) {
+                    try {
+                        const mp4Filename = `${studentId || 'lesson'}_${Date.now()}.mp4`
+                        const cloudUrl = await uploadBlobToCloud(
+                            mp4Blob,
+                            mp4Filename,
+                            studentId || 'guest',
+                            userId,
+                            (msg) => setUploadStatus(msg)
+                        )
 
-                try {
-                    // Drain ALL remaining chunks in 3MB batches
-                    await drainBuffer()
-
-                    // Build final chunk from any remaining buffer (should be <3MB)
-                    const finalBlob = chunksRef.current.length > 0
-                        ? new Blob(chunksRef.current, { type: 'video/webm' })
-                        : null
-                    chunksRef.current = []
-
-                    // Send finalize request with any remaining data
-                    const formData = new FormData()
-                    formData.append('uploadId', uploadIdRef.current!)
-                    formData.append('key', uploadKeyRef.current!)
-                    formData.append('parts', JSON.stringify(uploadedPartsRef.current))
-                    formData.append('studentId', studentId || 'guest')
-                    formData.append('teacherId', userId)
-                    formData.append('totalSize', String(totalSizeRef.current + (finalBlob?.size || 0)))
-
-                    if (finalBlob && finalBlob.size > 0) {
-                        formData.append('finalChunk', finalBlob, 'final.webm')
+                        if (cloudUrl) {
+                            console.log(`[Recording] MP4 uploaded to cloud: ${cloudUrl}`)
+                            setUploadStatus("")
+                            setIsRecording(false)
+                            alert("✅ Recording saved! (WebM + MP4 downloaded, MP4 uploaded to cloud)")
+                        } else {
+                            throw new Error("Cloud upload returned no URL")
+                        }
+                    } catch (uploadErr) {
+                        console.error("[Recording] MP4 cloud upload failed:", uploadErr)
+                        setUploadStatus("Cloud upload failed (local files saved)")
+                        setIsRecording(false)
                     }
-
-                    const response = await fetch('/api/recording/finalize', {
-                        method: 'POST',
-                        body: formData,
-                    })
-
-                    if (!response.ok) throw new Error("Finalize failed")
-
-                    setUploadStatus("")
-                    setIsRecording(false)
-                    alert("✅ Recording saved to cloud & downloaded locally!")
-                } catch (e) {
-                    console.error("[Recording] Cloud finalize error:", e)
-                    setUploadStatus("Cloud error (local backup saved)")
-                    setIsRecording(false)
+                } else {
+                    // Conversion failed — fall back to uploading WebM
+                    setUploadStatus("Uploading WebM fallback...")
+                    try {
+                        const webmFilename = `${studentId || 'lesson'}_${Date.now()}.webm`
+                        const cloudUrl = await uploadBlobToCloud(
+                            webmBlob,
+                            webmFilename,
+                            studentId || 'guest',
+                            userId,
+                            (msg) => setUploadStatus(msg)
+                        )
+                        if (cloudUrl) {
+                            setUploadStatus("")
+                            setIsRecording(false)
+                            alert("⚠️ MP4 conversion failed. WebM uploaded to cloud instead.")
+                        }
+                    } catch (fbErr) {
+                        console.error("[Recording] WebM fallback upload failed:", fbErr)
+                        setUploadStatus("Upload failed (local files saved)")
+                        setIsRecording(false)
+                    }
                 }
 
                 // Reset refs

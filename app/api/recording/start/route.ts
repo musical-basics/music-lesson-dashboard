@@ -20,10 +20,12 @@ export async function POST(request: Request) {
 
         console.log("[Recording/Start] Initiating multipart upload for:", filename);
 
+        const contentType = filename.endsWith('.mp4') ? 'video/mp4' : 'video/webm';
+
         const command = new CreateMultipartUploadCommand({
             Bucket: process.env.R2_BUCKET_NAME,
             Key: filename,
-            ContentType: "video/webm",
+            ContentType: contentType,
         });
 
         const response = await r2.send(command);
