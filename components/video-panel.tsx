@@ -163,6 +163,7 @@ export function VideoPanel({
     // Refs for recording
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
     const chunksRef = useRef<Blob[]>([]) // Buffer of chunks not yet uploaded
+    const allChunksRef = useRef<Blob[]>([]) // ALL chunks for local download backup
     const totalSizeRef = useRef(0)
 
     // Multipart upload state refs
@@ -172,7 +173,7 @@ export function VideoPanel({
     const partCounterRef = useRef(0)
     const isFlushingRef = useRef(false)
 
-    const FLUSH_THRESHOLD = 4 * 1024 * 1024 // 4MB - stay under Vercel's 4.5MB payload limit
+    const FLUSH_THRESHOLD = 3 * 1024 * 1024 // 3MB - stay well under Vercel's 4.5MB payload limit (FormData overhead)
 
     const userId = "teacher-1" // TODO: Get from auth context
 
@@ -353,6 +354,7 @@ export function VideoPanel({
             partCounterRef.current = 0
             totalSizeRef.current = 0
             chunksRef.current = []
+            allChunksRef.current = []
             flushQueuedRef.current = false
 
             console.log(`[Recording] Multipart upload started: ${key} (${uploadId})`)
@@ -363,6 +365,7 @@ export function VideoPanel({
             recorder.ondataavailable = (e) => {
                 if (e.data.size > 0) {
                     chunksRef.current.push(e.data)
+                    allChunksRef.current.push(e.data) // Keep copy for local download
 
                     // Schedule flush when buffer exceeds threshold
                     if (getBufferSize() >= FLUSH_THRESHOLD) {
@@ -373,13 +376,35 @@ export function VideoPanel({
 
             recorder.onstop = async () => {
                 console.log("[Recording] Recorder stopped, finalizing...")
+                setUploadStatus("Saving locally...")
+
+                // --- 1. LOCAL DOWNLOAD BACKUP (immediate, before cloud upload) ---
+                try {
+                    if (allChunksRef.current.length > 0) {
+                        const fullBlob = new Blob(allChunksRef.current, { type: 'video/webm' })
+                        const url = URL.createObjectURL(fullBlob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = `lesson_${studentId || 'recording'}_${new Date().toISOString().replace(/[:.]/g, '-')}.webm`
+                        document.body.appendChild(a)
+                        a.click()
+                        document.body.removeChild(a)
+                        URL.revokeObjectURL(url)
+                        console.log(`[Recording] Local backup downloaded (${(fullBlob.size / 1024 / 1024).toFixed(1)} MB)`)
+                    }
+                } catch (dlErr) {
+                    console.error("[Recording] Local download failed:", dlErr)
+                }
+                allChunksRef.current = [] // Free memory
+
+                // --- 2. CLOUD UPLOAD FINALIZATION ---
                 setUploadStatus("Finalizing...")
 
                 try {
-                    // Drain ALL remaining chunks in 4MB batches
+                    // Drain ALL remaining chunks in 3MB batches
                     await drainBuffer()
 
-                    // Build final chunk from any remaining buffer (should be <4MB)
+                    // Build final chunk from any remaining buffer (should be <3MB)
                     const finalBlob = chunksRef.current.length > 0
                         ? new Blob(chunksRef.current, { type: 'video/webm' })
                         : null
@@ -407,10 +432,10 @@ export function VideoPanel({
 
                     setUploadStatus("")
                     setIsRecording(false)
-                    alert("✅ Recording saved!")
+                    alert("✅ Recording saved to cloud & downloaded locally!")
                 } catch (e) {
-                    console.error("[Recording] Finalize error:", e)
-                    setUploadStatus("Error!")
+                    console.error("[Recording] Cloud finalize error:", e)
+                    setUploadStatus("Cloud error (local backup saved)")
                     setIsRecording(false)
                 }
 
