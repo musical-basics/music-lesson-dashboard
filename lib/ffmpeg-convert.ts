@@ -82,7 +82,7 @@ export async function convertWebmToMp4(
 }
 
 /**
- * Upload a blob to cloud using multipart upload (reuses existing API routes).
+ * Upload a blob to cloud using presigned URLs (direct to R2, bypasses Vercel limits).
  * Returns the public URL.
  */
 export async function uploadBlobToCloud(
@@ -92,20 +92,20 @@ export async function uploadBlobToCloud(
     teacherId: string,
     onStatus?: (msg: string) => void
 ): Promise<string | null> {
-    const CHUNK_SIZE = 3 * 1024 * 1024 // 3MB chunks
+    const CHUNK_SIZE = 10 * 1024 * 1024 // 10MB chunks (no Vercel limit since we upload directly to R2)
 
     try {
-        // 1. Start multipart upload
-        onStatus?.('Starting MP4 upload...')
+        // 1. Start multipart upload (small JSON request to our API)
+        onStatus?.('Starting upload...')
         const startResp = await fetch('/api/recording/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename }),
         })
-        if (!startResp.ok) throw new Error('Failed to start MP4 multipart upload')
+        if (!startResp.ok) throw new Error('Failed to start multipart upload')
         const { uploadId, key } = await startResp.json()
 
-        // 2. Upload in chunks
+        // 2. Upload each chunk directly to R2 via presigned URLs
         const parts: { PartNumber: number; ETag: string }[] = []
         const totalChunks = Math.ceil(blob.size / CHUNK_SIZE)
 
@@ -115,48 +115,52 @@ export async function uploadBlobToCloud(
             const chunk = blob.slice(start, end)
             const partNumber = i + 1
 
-            onStatus?.(`Uploading MP4 part ${partNumber}/${totalChunks}...`)
+            onStatus?.(`Uploading part ${partNumber}/${totalChunks}...`)
 
-            const formData = new FormData()
-            formData.append('chunk', chunk, `part-${partNumber}.mp4`)
-            formData.append('uploadId', uploadId)
-            formData.append('key', key)
-            formData.append('partNumber', String(partNumber))
-
-            const resp = await fetch('/api/recording/upload-part', {
+            // 2a. Get presigned URL from our API (tiny JSON request)
+            const presignResp = await fetch('/api/recording/presign-part', {
                 method: 'POST',
-                body: formData,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uploadId, key, partNumber }),
             })
+            if (!presignResp.ok) throw new Error(`Failed to get presigned URL for part ${partNumber}`)
+            const { presignedUrl } = await presignResp.json()
 
-            if (!resp.ok) throw new Error(`MP4 part ${partNumber} upload failed`)
+            // 2b. PUT directly to R2 (bypasses Vercel entirely, no size limit)
+            const uploadResp = await fetch(presignedUrl, {
+                method: 'PUT',
+                body: chunk,
+            })
+            if (!uploadResp.ok) throw new Error(`Part ${partNumber} upload failed: ${uploadResp.status}`)
 
-            const { eTag } = await resp.json()
+            const eTag = uploadResp.headers.get('ETag')
+            if (!eTag) throw new Error(`No ETag returned for part ${partNumber}`)
             parts.push({ PartNumber: partNumber, ETag: eTag })
         }
 
-        // 3. Finalize
-        onStatus?.('Finalizing MP4 upload...')
-        const formData = new FormData()
-        formData.append('uploadId', uploadId)
-        formData.append('key', key)
-        formData.append('parts', JSON.stringify(parts))
-        formData.append('studentId', studentId)
-        formData.append('teacherId', teacherId)
-        formData.append('totalSize', String(blob.size))
-
+        // 3. Finalize (small JSON request to our API)
+        onStatus?.('Finalizing...')
         const finalResp = await fetch('/api/recording/finalize', {
             method: 'POST',
-            body: formData,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                uploadId,
+                key,
+                parts,
+                studentId,
+                teacherId,
+                totalSize: blob.size,
+            }),
         })
 
-        if (!finalResp.ok) throw new Error('MP4 finalize failed')
+        if (!finalResp.ok) throw new Error('Finalize failed')
 
         const { url } = await finalResp.json()
         onStatus?.('')
         return url
     } catch (e) {
-        console.error('[MP4 Upload] Error:', e)
-        onStatus?.('MP4 upload failed')
+        console.error('[Upload] Error:', e)
+        onStatus?.('Upload failed')
         return null
     }
 }

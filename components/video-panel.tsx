@@ -176,7 +176,7 @@ export function VideoPanel({
     const partCounterRef = useRef(0)
     const isFlushingRef = useRef(false)
 
-    const FLUSH_THRESHOLD = 3 * 1024 * 1024 // 3MB - stay well under Vercel's 4.5MB payload limit (FormData overhead)
+    const FLUSH_THRESHOLD = 10 * 1024 * 1024 // 10MB - uploads go directly to R2 via presigned URLs (no Vercel limit)
 
     const userId = "teacher-1" // TODO: Get from auth context
 
@@ -249,9 +249,9 @@ export function VideoPanel({
         }
     }
 
-    // --- PROGRESSIVE RECORDING LOGIC (R2 Multipart Upload) ---
+    // --- PROGRESSIVE RECORDING LOGIC (R2 Multipart Upload via Presigned URLs) ---
 
-    // Flush buffer: take up to FLUSH_THRESHOLD bytes of chunks and upload as one part
+    // Flush buffer: take up to FLUSH_THRESHOLD bytes of chunks and upload directly to R2
     const flushBuffer = async () => {
         if (isFlushingRef.current) return
         if (chunksRef.current.length === 0) return
@@ -281,20 +281,31 @@ export function VideoPanel({
 
             console.log(`[Recording] Flushing part ${partNumber} (${(blob.size / 1024 / 1024).toFixed(2)} MB)`)
 
-            const formData = new FormData()
-            formData.append('chunk', blob, `part-${partNumber}.webm`)
-            formData.append('uploadId', uploadIdRef.current)
-            formData.append('key', uploadKeyRef.current)
-            formData.append('partNumber', String(partNumber))
-
-            const response = await fetch('/api/recording/upload-part', {
+            // Get presigned URL from our API (tiny JSON request)
+            const presignResp = await fetch('/api/recording/presign-part', {
                 method: 'POST',
-                body: formData,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    uploadId: uploadIdRef.current,
+                    key: uploadKeyRef.current,
+                    partNumber,
+                }),
             })
 
-            if (!response.ok) throw new Error(`Part upload failed: ${response.statusText}`)
+            if (!presignResp.ok) throw new Error(`Failed to get presigned URL for part ${partNumber}`)
+            const { presignedUrl } = await presignResp.json()
 
-            const { eTag } = await response.json()
+            // PUT directly to R2 (bypasses Vercel, no size limit)
+            const uploadResp = await fetch(presignedUrl, {
+                method: 'PUT',
+                body: blob,
+            })
+
+            if (!uploadResp.ok) throw new Error(`Part upload failed: ${uploadResp.status}`)
+
+            const eTag = uploadResp.headers.get('ETag')
+            if (!eTag) throw new Error(`No ETag for part ${partNumber}`)
+
             uploadedPartsRef.current.push({ PartNumber: partNumber, ETag: eTag })
             totalSizeRef.current += blob.size
 
