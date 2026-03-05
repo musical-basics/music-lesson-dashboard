@@ -104,16 +104,13 @@ function MusicStudioContent() {
   // If NOT (Teacher auto-join), default to 'true' (System Default) if we are in a live view.
   const isLiveView = currentView !== 'green-room';
 
-  // When teacher has "left" the lesson, disconnect video/audio but keep page alive
-  const videoProp = (isLiveView && !hasLeftLesson)
+  const videoProp = isLiveView
     ? (userChoices ? { deviceId: userChoices.videoDeviceId } : true)
     : false;
 
-  const audioProp = (isLiveView && !hasLeftLesson)
+  const audioProp = isLiveView
     ? (userChoices ? { deviceId: userChoices.audioDeviceId } : true)
     : false;
-
-  const shouldConnect = !!token && !hasLeftLesson;
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
@@ -160,7 +157,7 @@ function MusicStudioContent() {
           audio={audioProp}
           token={token}
           serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
-          connect={shouldConnect}
+          connect={!!token}
           data-lk-theme="default"
           style={{ height: '100%' }}
         >

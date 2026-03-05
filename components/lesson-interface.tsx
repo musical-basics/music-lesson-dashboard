@@ -571,30 +571,6 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
           onSave={handleSaveXml}
         />
       )}
-
-      {/* Post-Lesson Overlay - Teacher has left but page stays alive for uploads */}
-      {hasLeftLesson && !isStudent && (
-        <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center">
-          <div className="text-center space-y-4 p-8 rounded-2xl bg-zinc-900/90 border border-zinc-700 max-w-md">
-            <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto">
-              <LogOut className="w-8 h-8 text-zinc-400" />
-            </div>
-            <h2 className="text-xl font-semibold text-white">You have left the lesson</h2>
-            <p className="text-sm text-zinc-400">
-              The student can no longer see you. Any pending recording uploads will continue in the background.
-            </p>
-            <Button
-              variant="default"
-              size="lg"
-              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
-              onClick={onRejoinLesson}
-            >
-              <LogIn className="w-4 h-4" />
-              Rejoin Lesson
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

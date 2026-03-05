@@ -210,6 +210,22 @@ export function VideoPanel({
         applyAudioSettings()
     }, [audioSettings.echoCancellation, audioSettings.noiseSuppression, audioSettings.autoGainControl, localParticipant])
 
+    // Mute/unmute camera & mic when teacher leaves/rejoins the lesson
+    // This makes the teacher invisible to the student without disconnecting from LiveKit
+    useEffect(() => {
+        if (!localParticipant || isStudent) return
+
+        if (hasLeftLesson) {
+            console.log('[VideoPanel] Teacher left lesson - muting camera & mic')
+            localParticipant.setCameraEnabled(false)
+            localParticipant.setMicrophoneEnabled(false)
+        } else {
+            console.log('[VideoPanel] Teacher rejoined lesson - re-enabling camera & mic')
+            localParticipant.setCameraEnabled(true)
+            localParticipant.setMicrophoneEnabled(true)
+        }
+    }, [hasLeftLesson, localParticipant, isStudent])
+
     // Toggle camera via LiveKit
     const toggleCamera = async () => {
         try {
@@ -731,8 +747,8 @@ export function VideoPanel({
                     </span>
                 )}
 
-                {/* Recording Controls (Teacher only, hidden when left lesson) */}
-                {!isStudent && !hasLeftLesson && (
+                {/* Recording Controls (Teacher only) */}
+                {!isStudent && (
                     <div className={`flex ${controlsPosition === "right" ? "flex-col mt-auto" : "items-center"} gap-2`}>
                         <Button
                             variant={isRecording ? "destructive" : "ghost"}
