@@ -53,6 +53,7 @@ export interface VideoPanelProps {
     showOverlay?: boolean
     studentAudioSettings?: AudioProcessingSettings
     onStudentAudioSettingsChange?: (settings: Partial<AudioProcessingSettings>) => void
+    hasLeftLesson?: boolean
 }
 
 // ============================================================================
@@ -149,7 +150,8 @@ export function VideoPanel({
     className = "",
     showOverlay = true,
     studentAudioSettings,
-    onStudentAudioSettingsChange
+    onStudentAudioSettingsChange,
+    hasLeftLesson = false
 }: VideoPanelProps) {
     // LiveKit local participant for camera/mic control
     const { localParticipant } = useLocalParticipant()
@@ -722,14 +724,16 @@ export function VideoPanel({
                     )}
                 </div>
 
-                {/* Recording Controls (Teacher only) */}
-                {!isStudent && (
+                {/* Upload Status (always visible, even after leaving lesson) */}
+                {!isStudent && uploadStatus && (
+                    <span className="text-[10px] text-muted-foreground text-center leading-tight max-w-[48px] overflow-hidden text-ellipsis whitespace-nowrap" title={uploadStatus}>
+                        {uploadStatus}
+                    </span>
+                )}
+
+                {/* Recording Controls (Teacher only, hidden when left lesson) */}
+                {!isStudent && !hasLeftLesson && (
                     <div className={`flex ${controlsPosition === "right" ? "flex-col mt-auto" : "items-center"} gap-2`}>
-                        {uploadStatus && (
-                            <span className="text-[10px] text-muted-foreground text-center leading-tight max-w-[48px] overflow-hidden text-ellipsis whitespace-nowrap" title={uploadStatus}>
-                                {uploadStatus}
-                            </span>
-                        )}
                         <Button
                             variant={isRecording ? "destructive" : "ghost"}
                             size="sm"

@@ -32,6 +32,7 @@ function MusicStudioContent() {
   const [currentView, setCurrentView] = useState<View>(viewParam || "green-room")
   const [token, setToken] = useState("")
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [hasLeftLesson, setHasLeftLesson] = useState(false)
   const [userChoices, setUserChoices] = useState<{
     videoDeviceId: string;
     audioDeviceId: string;
@@ -103,13 +104,16 @@ function MusicStudioContent() {
   // If NOT (Teacher auto-join), default to 'true' (System Default) if we are in a live view.
   const isLiveView = currentView !== 'green-room';
 
-  const videoProp = isLiveView
+  // When teacher has "left" the lesson, disconnect video/audio but keep page alive
+  const videoProp = (isLiveView && !hasLeftLesson)
     ? (userChoices ? { deviceId: userChoices.videoDeviceId } : true)
     : false;
 
-  const audioProp = isLiveView
+  const audioProp = (isLiveView && !hasLeftLesson)
     ? (userChoices ? { deviceId: userChoices.audioDeviceId } : true)
     : false;
+
+  const shouldConnect = !!token && !hasLeftLesson;
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
@@ -156,7 +160,7 @@ function MusicStudioContent() {
           audio={audioProp}
           token={token}
           serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
-          connect={!!token}
+          connect={shouldConnect}
           data-lk-theme="default"
           style={{ height: '100%' }}
         >
@@ -168,6 +172,9 @@ function MusicStudioContent() {
           {currentView === "lesson" && (
             <LessonInterface
               studentId={studentIdParam || 'guest'}
+              hasLeftLesson={hasLeftLesson}
+              onLeaveLesson={() => setHasLeftLesson(true)}
+              onRejoinLesson={() => setHasLeftLesson(false)}
             />
           )}
           {currentView === "recital" && <RecitalStage />}

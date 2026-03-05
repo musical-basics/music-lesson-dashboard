@@ -15,7 +15,9 @@ import {
   PictureInPicture2,
   Video,
   Lock,
-  Unlock
+  Unlock,
+  LogOut,
+  LogIn
 } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
@@ -29,9 +31,12 @@ import { useToast } from "@/hooks/use-toast"
 
 interface LessonInterfaceProps {
   studentId?: string
+  hasLeftLesson?: boolean
+  onLeaveLesson?: () => void
+  onRejoinLesson?: () => void
 }
 
-export function LessonInterface({ studentId }: LessonInterfaceProps) {
+export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesson, onRejoinLesson }: LessonInterfaceProps) {
   // Get the Role from URL
   const searchParams = useSearchParams()
   const role = searchParams.get('role')
@@ -272,6 +277,34 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
               </>
             )}
 
+            {/* Leave / Rejoin Lesson - Teacher Only */}
+            {!isStudent && (
+              <>
+                <div className="w-px h-5 bg-border mx-2" />
+                {hasLeftLesson ? (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700"
+                    onClick={onRejoinLesson}
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    Rejoin Lesson
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                    onClick={onLeaveLesson}
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    Leave Lesson
+                  </Button>
+                )}
+              </>
+            )}
+
             {/* Student Indicator when being controlled */}
             {isStudent && settings.teacherControlEnabled && (
               <>
@@ -367,6 +400,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       className="h-full w-full"
                       studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
+                      hasLeftLesson={hasLeftLesson}
                     />
                   </div>
                 </div>
@@ -417,6 +451,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                       controlsPosition="right"
+                      hasLeftLesson={hasLeftLesson}
                     />
                   </div>
                 </div>
@@ -439,6 +474,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                       className="h-full w-full"
                       studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
+                      hasLeftLesson={hasLeftLesson}
                     />
                   </div>
                 </div>
@@ -473,6 +509,7 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
                   className="h-full w-full"
                   studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                   onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
+                  hasLeftLesson={hasLeftLesson}
                 />
 
               </div>
@@ -533,6 +570,30 @@ export function LessonInterface({ studentId }: LessonInterfaceProps) {
           onClose={() => setIsEditingXml(false)}
           onSave={handleSaveXml}
         />
+      )}
+
+      {/* Post-Lesson Overlay - Teacher has left but page stays alive for uploads */}
+      {hasLeftLesson && !isStudent && (
+        <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center">
+          <div className="text-center space-y-4 p-8 rounded-2xl bg-zinc-900/90 border border-zinc-700 max-w-md">
+            <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto">
+              <LogOut className="w-8 h-8 text-zinc-400" />
+            </div>
+            <h2 className="text-xl font-semibold text-white">You have left the lesson</h2>
+            <p className="text-sm text-zinc-400">
+              The student can no longer see you. Any pending recording uploads will continue in the background.
+            </p>
+            <Button
+              variant="default"
+              size="lg"
+              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+              onClick={onRejoinLesson}
+            >
+              <LogIn className="w-4 h-4" />
+              Rejoin Lesson
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   )
