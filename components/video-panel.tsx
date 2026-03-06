@@ -303,10 +303,8 @@ export function VideoPanel({
 
             if (!uploadResp.ok) throw new Error(`Part upload failed: ${uploadResp.status}`)
 
-            const eTag = uploadResp.headers.get('ETag')
-            if (!eTag) throw new Error(`No ETag for part ${partNumber}`)
-
-            uploadedPartsRef.current.push({ PartNumber: partNumber, ETag: eTag })
+            // No need to track ETags client-side — server will fetch them via ListParts at finalization
+            uploadedPartsRef.current.push({ PartNumber: partNumber, ETag: '' })
             totalSizeRef.current += blob.size
 
             console.log(`[Recording] Part ${partNumber} uploaded successfully`)

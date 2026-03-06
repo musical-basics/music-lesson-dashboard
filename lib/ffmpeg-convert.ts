@@ -106,7 +106,6 @@ export async function uploadBlobToCloud(
         const { uploadId, key } = await startResp.json()
 
         // 2. Upload each chunk directly to R2 via presigned URLs
-        const parts: { PartNumber: number; ETag: string }[] = []
         const totalChunks = Math.ceil(blob.size / CHUNK_SIZE)
 
         for (let i = 0; i < totalChunks; i++) {
@@ -132,13 +131,9 @@ export async function uploadBlobToCloud(
                 body: chunk,
             })
             if (!uploadResp.ok) throw new Error(`Part ${partNumber} upload failed: ${uploadResp.status}`)
-
-            const eTag = uploadResp.headers.get('ETag')
-            if (!eTag) throw new Error(`No ETag returned for part ${partNumber}`)
-            parts.push({ PartNumber: partNumber, ETag: eTag })
         }
 
-        // 3. Finalize (small JSON request to our API)
+        // 3. Finalize — server fetches ETags via ListParts
         onStatus?.('Finalizing...')
         const finalResp = await fetch('/api/recording/finalize', {
             method: 'POST',
@@ -146,7 +141,7 @@ export async function uploadBlobToCloud(
             body: JSON.stringify({
                 uploadId,
                 key,
-                parts,
+                parts: [], // Server will fetch ETags via ListParts
                 studentId,
                 teacherId,
                 totalSize: blob.size,

@@ -1,4 +1,4 @@
-import { S3Client, UploadPartCommand, CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
+import { S3Client, UploadPartCommand, CompleteMultipartUploadCommand, ListPartsCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "uploadId and key are required" }, { status: 400 });
         }
 
-        console.log(`[Recording/Finalize] Finalizing ${key} with ${parts.length} parts`);
+        console.log(`[Recording/Finalize] Finalizing ${key} with ${parts.length} client-provided parts`);
 
         // Upload final chunk if present
         if (finalChunk && finalChunk.size > 0) {
@@ -85,6 +85,38 @@ export async function POST(request: Request) {
             });
 
             totalSize += finalChunk.size;
+        }
+
+        // If no parts with ETags from client (presigned URL flow),
+        // fetch all parts from R2 using ListParts
+        const hasValidETags = parts.length > 0 && parts.every(p => p.ETag);
+        if (!hasValidETags) {
+            console.log(`[Recording/Finalize] No valid client ETags, fetching parts from R2...`);
+            const allParts: { PartNumber: number; ETag: string }[] = [];
+            let partMarker: string | undefined;
+
+            // ListParts is paginated, loop until we have all parts
+            do {
+                const listResp = await r2.send(new ListPartsCommand({
+                    Bucket: process.env.R2_BUCKET_NAME,
+                    Key: key,
+                    UploadId: uploadId,
+                    PartNumberMarker: partMarker,
+                }));
+
+                if (listResp.Parts) {
+                    for (const part of listResp.Parts) {
+                        if (part.PartNumber && part.ETag) {
+                            allParts.push({ PartNumber: part.PartNumber, ETag: part.ETag });
+                        }
+                    }
+                }
+
+                partMarker = listResp.IsTruncated ? String(listResp.NextPartNumberMarker) : undefined;
+            } while (partMarker);
+
+            parts = allParts;
+            console.log(`[Recording/Finalize] Found ${parts.length} parts from R2`);
         }
 
         if (parts.length === 0) {
