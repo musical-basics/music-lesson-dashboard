@@ -165,17 +165,23 @@ export function VideoPanel({
 
     // Refs for recording
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-    const chunksRef = useRef<Blob[]>([]) // Buffer of chunks not yet uploaded
-    const allChunksRef = useRef<Blob[]>([]) // ALL chunks for local download backup
+    const streamRef = useRef<MediaStream | null>(null) // Reused across segments
+    const chunksRef = useRef<Blob[]>([]) // Buffer of chunks not yet uploaded (current segment)
+    const allChunksRef = useRef<Blob[]>([]) // ALL chunks for current segment (local download)
     const totalSizeRef = useRef(0)
 
-    // Multipart upload state refs
+    // Multipart upload state refs (per-segment)
     const uploadIdRef = useRef<string | null>(null)
     const uploadKeyRef = useRef<string | null>(null)
     const uploadedPartsRef = useRef<{ PartNumber: number; ETag: string }[]>([])
     const partCounterRef = useRef(0)
     const isFlushingRef = useRef(false)
 
+    // Segment rotation
+    const segmentNumberRef = useRef(0)
+    const rotationTimerRef = useRef<NodeJS.Timeout | null>(null)
+    const isRotatingRef = useRef(false) // true = auto-rotation, false = manual stop
+    const SEGMENT_DURATION_MS = 10 * 60 * 1000 // 10 minutes
     const FLUSH_THRESHOLD = 10 * 1024 * 1024 // 10MB - uploads go directly to R2 via presigned URLs (no Vercel limit)
 
     const userId = "teacher-1" // TODO: Get from auth context
@@ -355,6 +361,262 @@ export function VideoPanel({
             })()
     }
 
+    // --- Process a completed segment (finalize, download, convert, upload) ---
+    const processSegment = async (snapshot: {
+        uploadId: string
+        uploadKey: string
+        chunks: Blob[]
+        allChunks: Blob[]
+        totalSize: number
+        segmentNum: number
+        isFinal: boolean
+    }) => {
+        const { uploadId, uploadKey, allChunks, segmentNum, isFinal } = snapshot
+        const segmentLabel = `Seg ${segmentNum}`
+        const MAX_CONVERT_SIZE = 200 * 1024 * 1024
+
+        // Build the full WebM blob for this segment
+        const webmBlob = allChunks.length > 0
+            ? new Blob(allChunks, { type: 'video/webm' })
+            : null
+
+        if (!webmBlob || webmBlob.size === 0) {
+            console.warn(`[Recording] ${segmentLabel}: No data recorded`)
+            return
+        }
+
+        const sizeMB = (webmBlob.size / 1024 / 1024).toFixed(1)
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+        const baseName = `lesson_${studentId || 'recording'}_${timestamp}_part${segmentNum}`
+
+        console.log(`[Recording] ${segmentLabel}: Processing ${sizeMB} MB`)
+
+        // 1. Finalize WebM to cloud (progressive data is already in R2)
+        setUploadStatus(`${segmentLabel}: Finalizing...`)
+        try {
+            // Drain remaining buffer for this segment
+            if (snapshot.chunks.length > 0) {
+                const finalBlob = new Blob(snapshot.chunks, { type: 'video/webm' })
+
+                const formData = new FormData()
+                formData.append('uploadId', uploadId)
+                formData.append('key', uploadKey)
+                formData.append('parts', JSON.stringify([]))
+                formData.append('studentId', studentId || 'guest')
+                formData.append('teacherId', userId)
+                formData.append('totalSize', String(snapshot.totalSize + finalBlob.size))
+                formData.append('finalChunk', finalBlob, 'final.webm')
+
+                const response = await fetch('/api/recording/finalize', {
+                    method: 'POST',
+                    body: formData,
+                })
+                if (response.ok) {
+                    const data = await response.json()
+                    console.log(`[Recording] ${segmentLabel}: WebM finalized to cloud: ${data.url}`)
+                } else {
+                    console.error(`[Recording] ${segmentLabel}: WebM finalize failed:`, response.statusText)
+                }
+            } else {
+                // No remaining buffer, just finalize
+                const response = await fetch('/api/recording/finalize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        uploadId,
+                        key: uploadKey,
+                        parts: [],
+                        studentId: studentId || 'guest',
+                        teacherId: userId,
+                        totalSize: snapshot.totalSize,
+                    }),
+                })
+                if (response.ok) {
+                    const data = await response.json()
+                    console.log(`[Recording] ${segmentLabel}: WebM finalized to cloud: ${data.url}`)
+                } else {
+                    console.error(`[Recording] ${segmentLabel}: WebM finalize failed:`, response.statusText)
+                }
+            }
+        } catch (e) {
+            console.error(`[Recording] ${segmentLabel}: WebM cloud finalize error:`, e)
+        }
+
+        // 2. Download WebM locally
+        setUploadStatus(`${segmentLabel}: Downloading .webm...`)
+        try {
+            const webmUrl = URL.createObjectURL(webmBlob)
+            const a = document.createElement('a')
+            a.href = webmUrl
+            a.download = `${baseName}.webm`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(webmUrl)
+            console.log(`[Recording] ${segmentLabel}: WebM downloaded (${sizeMB} MB)`)
+        } catch (dlErr) {
+            console.error(`[Recording] ${segmentLabel}: WebM download failed:`, dlErr)
+        }
+
+        // 3. MP4 conversion (only for segments under 200MB)
+        if (webmBlob.size <= MAX_CONVERT_SIZE) {
+            let mp4Blob: Blob | null = null
+            try {
+                setUploadStatus(`${segmentLabel}: Converting to MP4...`)
+                console.log(`[Recording] ${segmentLabel}: Starting MP4 conversion (${sizeMB} MB)`)
+                mp4Blob = await convertWebmToMp4(webmBlob, (pct) => {
+                    if (pct > 0) setUploadStatus(`${segmentLabel}: Converting ${pct}%`)
+                })
+                console.log(`[Recording] ${segmentLabel}: MP4 complete (${(mp4Blob.size / 1024 / 1024).toFixed(1)} MB)`)
+            } catch (convErr) {
+                console.error(`[Recording] ${segmentLabel}: MP4 conversion failed:`, convErr)
+            }
+
+            if (mp4Blob) {
+                // Download MP4
+                try {
+                    setUploadStatus(`${segmentLabel}: Downloading .mp4...`)
+                    const mp4Url = URL.createObjectURL(mp4Blob)
+                    const a = document.createElement('a')
+                    a.href = mp4Url
+                    a.download = `${baseName}.mp4`
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    URL.revokeObjectURL(mp4Url)
+                    console.log(`[Recording] ${segmentLabel}: MP4 downloaded`)
+                } catch (dlErr) {
+                    console.error(`[Recording] ${segmentLabel}: MP4 download failed:`, dlErr)
+                }
+
+                // Upload MP4 to cloud
+                try {
+                    const mp4Filename = `${studentId || 'lesson'}_${Date.now()}_part${segmentNum}.mp4`
+                    const mp4CloudUrl = await uploadBlobToCloud(
+                        mp4Blob,
+                        mp4Filename,
+                        studentId || 'guest',
+                        userId,
+                        (msg) => setUploadStatus(`${segmentLabel}: ${msg}`)
+                    )
+                    if (mp4CloudUrl) {
+                        console.log(`[Recording] ${segmentLabel}: MP4 uploaded to cloud: ${mp4CloudUrl}`)
+                    }
+                } catch (uploadErr) {
+                    console.error(`[Recording] ${segmentLabel}: MP4 cloud upload failed:`, uploadErr)
+                }
+            }
+        } else {
+            console.log(`[Recording] ${segmentLabel}: Skipping MP4 conversion — ${sizeMB} MB too large`)
+        }
+
+        // Clear status and show alert only for the final segment
+        if (isFinal) {
+            setUploadStatus("")
+            setIsRecording(false)
+            const totalSegments = segmentNum
+            alert(`✅ Recording complete!\n• ${totalSegments} segment${totalSegments > 1 ? 's' : ''} processed\n• WebM + MP4 downloaded locally\n• Uploaded to cloud`)
+        } else {
+            setUploadStatus(`${segmentLabel} done. Recording...`)
+        }
+    }
+
+    // --- Start a new segment on an existing stream ---
+    const startNewSegment = async (stream: MediaStream) => {
+        segmentNumberRef.current += 1
+        const segmentNum = segmentNumberRef.current
+
+        // 1. Start new multipart upload for this segment
+        const filename = `${studentId || 'lesson'}_${Date.now()}_part${segmentNum}.webm`
+        const startResponse = await fetch('/api/recording/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename }),
+        })
+
+        if (!startResponse.ok) throw new Error("Failed to start multipart upload for new segment")
+
+        const { uploadId, key } = await startResponse.json()
+        uploadIdRef.current = uploadId
+        uploadKeyRef.current = key
+        uploadedPartsRef.current = []
+        partCounterRef.current = 0
+        totalSizeRef.current = 0
+        chunksRef.current = []
+        allChunksRef.current = []
+        flushQueuedRef.current = false
+        isFlushingRef.current = false
+
+        console.log(`[Recording] Segment ${segmentNum} started: ${key}`)
+
+        // 2. Create new MediaRecorder on the same stream
+        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' })
+
+        recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                chunksRef.current.push(e.data)
+                allChunksRef.current.push(e.data)
+
+                if (getBufferSize() >= FLUSH_THRESHOLD) {
+                    scheduleFlush()
+                }
+            }
+        }
+
+        recorder.onstop = async () => {
+            const currentSegmentNum = segmentNumberRef.current
+            const rotating = isRotatingRef.current
+            console.log(`[Recording] Segment ${currentSegmentNum} stopped (${rotating ? 'rotating' : 'manual stop'})`)
+
+            // Snapshot current segment state before resetting
+            const snapshot = {
+                uploadId: uploadIdRef.current!,
+                uploadKey: uploadKeyRef.current!,
+                chunks: [...chunksRef.current],
+                allChunks: [...allChunksRef.current],
+                totalSize: totalSizeRef.current,
+                segmentNum: currentSegmentNum,
+                isFinal: !rotating,
+            }
+
+            // Clear current refs immediately
+            chunksRef.current = []
+            allChunksRef.current = []
+
+            if (rotating) {
+                // Start the next segment IMMEDIATELY (< 5ms gap)
+                try {
+                    await startNewSegment(stream)
+                    console.log(`[Recording] New segment started, processing old segment ${currentSegmentNum} in background`)
+                } catch (e) {
+                    console.error("[Recording] Failed to start new segment:", e)
+                    // If we can't start a new segment, treat this as a manual stop
+                    snapshot.isFinal = true
+                }
+            } else {
+                // Manual stop — kill the stream
+                stream.getTracks().forEach(track => track.stop())
+                streamRef.current = null
+            }
+
+            // Process the completed segment (runs in background)
+            await processSegment(snapshot)
+        }
+
+        mediaRecorderRef.current = recorder
+        recorder.start(1000) // Collect data every second
+
+        // Set up rotation timer
+        if (rotationTimerRef.current) clearTimeout(rotationTimerRef.current)
+        rotationTimerRef.current = setTimeout(() => {
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                console.log(`[Recording] 10-minute rotation triggered`)
+                isRotatingRef.current = true
+                mediaRecorderRef.current.stop() // Triggers onstop → starts next segment
+            }
+        }, SEGMENT_DURATION_MS)
+    }
+
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -363,197 +625,16 @@ export function VideoPanel({
                 preferCurrentTab: true
             } as any)
 
-            // 1. Initiate multipart upload on R2
-            const filename = `${studentId || 'lesson'}_${Date.now()}.webm`
+            streamRef.current = stream
+            segmentNumberRef.current = 0 // Reset segment counter
+            setIsRecording(true)
             setUploadStatus("Starting...")
 
-            const startResponse = await fetch('/api/recording/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filename }),
-            })
-
-            if (!startResponse.ok) throw new Error("Failed to start multipart upload")
-
-            const { uploadId, key } = await startResponse.json()
-            uploadIdRef.current = uploadId
-            uploadKeyRef.current = key
-            uploadedPartsRef.current = []
-            partCounterRef.current = 0
-            totalSizeRef.current = 0
-            chunksRef.current = []
-            allChunksRef.current = []
-            flushQueuedRef.current = false
-
-            console.log(`[Recording] Multipart upload started: ${key} (${uploadId})`)
-
-            // 2. Start MediaRecorder
-            const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' })
-
-            recorder.ondataavailable = (e) => {
-                if (e.data.size > 0) {
-                    chunksRef.current.push(e.data)
-                    allChunksRef.current.push(e.data) // Keep copy for local download
-
-                    // Schedule flush when buffer exceeds threshold
-                    if (getBufferSize() >= FLUSH_THRESHOLD) {
-                        scheduleFlush()
-                    }
-                }
-            }
-
-            recorder.onstop = async () => {
-                console.log("[Recording] Recorder stopped, processing...")
-                const MAX_CONVERT_SIZE = 200 * 1024 * 1024 // 200MB - max size for in-browser MP4 conversion
-
-                // Build the full WebM blob from all recorded chunks
-                const webmBlob = allChunksRef.current.length > 0
-                    ? new Blob(allChunksRef.current, { type: 'video/webm' })
-                    : null
-                allChunksRef.current = [] // Free memory early
-
-                if (!webmBlob || webmBlob.size === 0) {
-                    console.warn("[Recording] No data recorded")
-                    setUploadStatus("")
-                    setIsRecording(false)
-                    return
-                }
-
-                const sizeMB = (webmBlob.size / 1024 / 1024).toFixed(1)
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-                const baseName = `lesson_${studentId || 'recording'}_${timestamp}`
-
-                // --- 1. FINALIZE WEBM CLOUD UPLOAD (progressive data is already in R2!) ---
-                setUploadStatus("Finalizing cloud upload...")
-                let webmCloudUrl: string | null = null
-                try {
-                    // Drain any remaining buffered chunks
-                    await drainBuffer()
-
-                    // Build final chunk from any stragglers
-                    const finalBlob = chunksRef.current.length > 0
-                        ? new Blob(chunksRef.current, { type: 'video/webm' })
-                        : null
-                    chunksRef.current = []
-
-                    // Finalize — server fetches ETags via ListParts
-                    const formData = new FormData()
-                    formData.append('uploadId', uploadIdRef.current!)
-                    formData.append('key', uploadKeyRef.current!)
-                    formData.append('parts', JSON.stringify([]))  // Server uses ListParts
-                    formData.append('studentId', studentId || 'guest')
-                    formData.append('teacherId', userId)
-                    formData.append('totalSize', String(totalSizeRef.current + (finalBlob?.size || 0)))
-
-                    if (finalBlob && finalBlob.size > 0) {
-                        formData.append('finalChunk', finalBlob, 'final.webm')
-                    }
-
-                    const response = await fetch('/api/recording/finalize', {
-                        method: 'POST',
-                        body: formData,
-                    })
-
-                    if (response.ok) {
-                        const data = await response.json()
-                        webmCloudUrl = data.url
-                        console.log(`[Recording] WebM finalized to cloud: ${webmCloudUrl}`)
-                    } else {
-                        console.error("[Recording] WebM finalize failed:", response.statusText)
-                    }
-                } catch (e) {
-                    console.error("[Recording] WebM cloud finalize error:", e)
-                }
-
-                // --- 2. DOWNLOAD WEBM LOCALLY ---
-                setUploadStatus("Downloading .webm...")
-                try {
-                    const webmUrl = URL.createObjectURL(webmBlob)
-                    const a = document.createElement('a')
-                    a.href = webmUrl
-                    a.download = `${baseName}.webm`
-                    document.body.appendChild(a)
-                    a.click()
-                    document.body.removeChild(a)
-                    URL.revokeObjectURL(webmUrl)
-                    console.log(`[Recording] WebM downloaded locally (${sizeMB} MB)`)
-                } catch (dlErr) {
-                    console.error("[Recording] WebM download failed:", dlErr)
-                }
-
-                // --- 3. MP4 CONVERSION (only for recordings under 200MB) ---
-                if (webmBlob.size <= MAX_CONVERT_SIZE) {
-                    let mp4Blob: Blob | null = null
-                    try {
-                        setUploadStatus("Converting to MP4...")
-                        console.log(`[Recording] Starting MP4 conversion (${sizeMB} MB, under ${MAX_CONVERT_SIZE / 1024 / 1024}MB limit)`)
-                        mp4Blob = await convertWebmToMp4(webmBlob, (pct) => {
-                            if (pct > 0) setUploadStatus(`Converting: ${pct}%`)
-                        })
-                        console.log(`[Recording] MP4 conversion complete (${(mp4Blob.size / 1024 / 1024).toFixed(1)} MB)`)
-                    } catch (convErr) {
-                        console.error("[Recording] MP4 conversion failed:", convErr)
-                    }
-
-                    // Download MP4 locally
-                    if (mp4Blob) {
-                        try {
-                            setUploadStatus("Downloading .mp4...")
-                            const mp4Url = URL.createObjectURL(mp4Blob)
-                            const a = document.createElement('a')
-                            a.href = mp4Url
-                            a.download = `${baseName}.mp4`
-                            document.body.appendChild(a)
-                            a.click()
-                            document.body.removeChild(a)
-                            URL.revokeObjectURL(mp4Url)
-                            console.log(`[Recording] MP4 downloaded locally`)
-                        } catch (dlErr) {
-                            console.error("[Recording] MP4 download failed:", dlErr)
-                        }
-
-                        // Upload MP4 to cloud
-                        try {
-                            const mp4Filename = `${studentId || 'lesson'}_${Date.now()}.mp4`
-                            const mp4CloudUrl = await uploadBlobToCloud(
-                                mp4Blob,
-                                mp4Filename,
-                                studentId || 'guest',
-                                userId,
-                                (msg) => setUploadStatus(msg)
-                            )
-                            if (mp4CloudUrl) {
-                                console.log(`[Recording] MP4 uploaded to cloud: ${mp4CloudUrl}`)
-                            }
-                        } catch (uploadErr) {
-                            console.error("[Recording] MP4 cloud upload failed:", uploadErr)
-                        }
-                    }
-
-                    setUploadStatus("")
-                    setIsRecording(false)
-                    alert(`✅ Recording saved! (${sizeMB} MB)\n• WebM + MP4 downloaded locally\n• ${mp4Blob ? 'MP4' : 'WebM'} uploaded to cloud`)
-                } else {
-                    // Recording too large for in-browser conversion
-                    console.log(`[Recording] Skipping MP4 conversion — ${sizeMB} MB exceeds ${MAX_CONVERT_SIZE / 1024 / 1024}MB limit`)
-                    setUploadStatus("")
-                    setIsRecording(false)
-                    alert(`✅ Recording saved! (${sizeMB} MB)\n• WebM downloaded locally\n• WebM uploaded to cloud\n\nℹ️ MP4 conversion skipped — file too large for in-browser conversion.`)
-                }
-
-                // Reset refs
-                uploadIdRef.current = null
-                uploadKeyRef.current = null
-                uploadedPartsRef.current = []
-                partCounterRef.current = 0
-                totalSizeRef.current = 0
-            }
-
-            mediaRecorderRef.current = recorder
-            recorder.start(1000) // Collect data every second
-            setIsRecording(true)
+            // Start the first segment
+            await startNewSegment(stream)
             setUploadStatus("")
 
+            // Handle user stopping screen share
             stream.getVideoTracks()[0].onended = () => {
                 stopRecording()
             }
@@ -565,26 +646,45 @@ export function VideoPanel({
     }
 
     const stopRecording = () => {
+        // Clear rotation timer
+        if (rotationTimerRef.current) {
+            clearTimeout(rotationTimerRef.current)
+            rotationTimerRef.current = null
+        }
+
+        // Mark as manual stop (not rotation)
+        isRotatingRef.current = false
+
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop()
-            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+            mediaRecorderRef.current.stop() // Triggers onstop with isFinal=true
         }
     }
 
     // Handle tab close / navigation away while recording
     useEffect(() => {
         const handleUnload = () => {
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-                mediaRecorderRef.current.stop()
-                mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+            // Clear rotation timer
+            if (rotationTimerRef.current) {
+                clearTimeout(rotationTimerRef.current)
+                rotationTimerRef.current = null
             }
 
-            // Best-effort finalize via sendBeacon with whatever parts are already uploaded
-            if (uploadIdRef.current && uploadKeyRef.current && uploadedPartsRef.current.length > 0) {
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                mediaRecorderRef.current.stop()
+            }
+
+            // Stop stream tracks
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop())
+                streamRef.current = null
+            }
+
+            // Best-effort finalize current segment via sendBeacon
+            if (uploadIdRef.current && uploadKeyRef.current) {
                 const formData = new FormData()
                 formData.append('uploadId', uploadIdRef.current)
                 formData.append('key', uploadKeyRef.current)
-                formData.append('parts', JSON.stringify(uploadedPartsRef.current))
+                formData.append('parts', JSON.stringify([]))
                 formData.append('studentId', studentId || 'guest')
                 formData.append('teacherId', userId)
                 formData.append('totalSize', String(totalSizeRef.current))
