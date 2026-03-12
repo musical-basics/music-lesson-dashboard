@@ -3,7 +3,7 @@ import { createServerClient } from '@/supabase/client'
 
 // Vanity URL handler
 // Looks up the student's UUID from the profiles table using their public_id,
-// then redirects to the lesson green room with the correct room name.
+// then redirects to the lesson interface with the correct room name.
 export default async function StudentVanityPage({ params }: { params: Promise<{ publicId: string }> }) {
     const { publicId } = await params
     const supabase = createServerClient()
@@ -19,7 +19,7 @@ export default async function StudentVanityPage({ params }: { params: Promise<{ 
         // Fallback: treat publicId as the actual student UUID
         console.warn(`No profile found for public_id "${publicId}", using as raw ID`)
         const roomName = `lesson-${publicId}`
-        const destination = `/?view=green-room` +
+        const destination = `/?view=lesson` +
             `&room=${roomName}` +
             `&studentId=${publicId}` +
             `&name=${encodeURIComponent(publicId)}` +
@@ -32,7 +32,7 @@ export default async function StudentVanityPage({ params }: { params: Promise<{ 
     const studentName = profile.name || publicId
     const roomName = `lesson-${studentUUID}`
 
-    const destination = `/?view=green-room` +
+    const destination = `/?view=lesson` +
         `&room=${roomName}` +
         `&studentId=${studentUUID}` +
         `&name=${encodeURIComponent(studentName)}` +

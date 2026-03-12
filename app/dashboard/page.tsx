@@ -116,7 +116,7 @@ export default function Dashboard() {
         const roomName = `lesson-${studentId}`
 
         // CHANGED: Point to root '/' with view=lesson (or green-room as default)
-        const link = `${window.location.origin}/?view=green-room&room=${roomName}&studentId=${studentId}&name=${studentId}&role=student`
+        const link = `${window.location.origin}/?view=lesson&room=${roomName}&studentId=${studentId}&name=${studentId}&role=student`
 
         navigator.clipboard.writeText(link)
         alert(`✅ Copied link for ${studentId}!\n\nSend this to the student.`)
