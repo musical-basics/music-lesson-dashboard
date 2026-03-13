@@ -157,9 +157,11 @@ export function VideoPanel({
     // LiveKit local participant for camera/mic control
     const { localParticipant } = useLocalParticipant()
 
-    // State
-    const [isMuted, setIsMuted] = useState(false)
-    const [isVideoOff, setIsVideoOff] = useState(false)
+    // State — derive camera/mic from LiveKit's actual track state
+    const isCameraEnabled = localParticipant?.isCameraEnabled ?? false
+    const isMicEnabled = localParticipant?.isMicrophoneEnabled ?? false
+    const isVideoOff = !isCameraEnabled
+    const isMuted = !isMicEnabled
     const [isRecording, setIsRecording] = useState(false)
     const [uploadStatus, setUploadStatus] = useState("")
 
@@ -236,9 +238,7 @@ export function VideoPanel({
     // Toggle camera via LiveKit
     const toggleCamera = async () => {
         try {
-            const newState = !isVideoOff
-            await localParticipant.setCameraEnabled(!newState)
-            setIsVideoOff(newState)
+            await localParticipant.setCameraEnabled(!isCameraEnabled)
         } catch (e) {
             console.error("Failed to toggle camera:", e)
         }
@@ -247,9 +247,7 @@ export function VideoPanel({
     // Toggle microphone via LiveKit
     const toggleMic = async () => {
         try {
-            const newState = !isMuted
-            await localParticipant.setMicrophoneEnabled(!newState)
-            setIsMuted(newState)
+            await localParticipant.setMicrophoneEnabled(!isMicEnabled)
         } catch (e) {
             console.error("Failed to toggle mic:", e)
         }
