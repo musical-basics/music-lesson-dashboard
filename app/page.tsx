@@ -6,7 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { GreenRoom } from "@/components/green-room"
 import { LessonInterface } from "@/components/lesson-interface"
 import { RecitalStage } from "@/components/recital-stage"
-import { Music, Menu } from "lucide-react"
+import { Music, Menu, Video } from "lucide-react"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react"
 import "@livekit/components-styles"
@@ -37,15 +37,18 @@ function MusicStudioContent() {
     videoDeviceId: string;
     audioDeviceId: string;
   } | null>(null);
+  // Students need a user gesture (click) before we can request camera permissions.
+  // Teachers auto-join because they're on their own machine with permissions granted.
+  const isStudentRole = roleParam === 'student'
+  const [needsUserGesture, setNeedsUserGesture] = useState(isStudentRole && viewParam === 'lesson')
 
-  // 2. AUTO-JOIN LOGIC (Corrected)
+  // 2. AUTO-JOIN LOGIC — Teachers only (students wait for button click)
   useEffect(() => {
-    // CRITICAL FIX: Determine the effective view. Default is 'green-room'.
     const targetView = viewParam || 'green-room';
 
-    // Only auto-join if we are NOT in the green room.
-    // This prevents the "Background Connection" from stealing the camera 
-    // while the Green Room preview is trying to use it.
+    // Skip auto-join for students (they need a user gesture for camera permission)
+    if (isStudentRole) return
+
     if (targetView !== 'green-room' && roomParam && nameParam && !token) {
       const fetchToken = async () => {
         try {
@@ -61,7 +64,31 @@ function MusicStudioContent() {
       }
       fetchToken()
     }
-  }, [viewParam, roomParam, nameParam, roleParam, keyParam, token])
+  }, [viewParam, roomParam, nameParam, roleParam, keyParam, token, isStudentRole])
+
+  // Student clicks "Join Lesson" — this user gesture allows the browser to prompt for camera
+  const handleStudentJoin = async () => {
+    const identity = nameParam || `Guest-${Math.floor(Math.random() * 1000)}`
+    const roomName = roomParam || 'demo-room'
+
+    console.log("🎓 Student joining room:", roomName, "as", identity)
+
+    try {
+      const resp = await fetch(
+        `/api/token?room=${roomName}&username=${identity}&role=${roleParam}&key=${keyParam}`
+      )
+      const data = await resp.json()
+      if (data.error) {
+        alert(data.error)
+        return
+      }
+      setToken(data.token)
+      setNeedsUserGesture(false)
+    } catch (e) {
+      console.error("Failed to join:", e)
+      alert("Could not connect to room")
+    }
+  }
 
   // Sync 'currentView' state with URL param if it changes externally
   useEffect(() => {
@@ -166,7 +193,29 @@ function MusicStudioContent() {
               onJoin={handleGreenRoomJoin}
             />
           )}
-          {currentView === "lesson" && (
+          {currentView === "lesson" && needsUserGesture && (
+            <div className="flex items-center justify-center h-full bg-background">
+              <div className="text-center space-y-6 p-8">
+                <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center mx-auto border border-primary/10">
+                  <Video className="w-10 h-10 text-primary" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-bold text-foreground">Ready to join?</h2>
+                  <p className="text-muted-foreground text-sm max-w-xs mx-auto">
+                    Your browser will ask for camera and microphone access.
+                  </p>
+                </div>
+                <Button
+                  size="lg"
+                  className="px-8 py-6 text-lg font-semibold rounded-xl"
+                  onClick={handleStudentJoin}
+                >
+                  Join Lesson
+                </Button>
+              </div>
+            </div>
+          )}
+          {currentView === "lesson" && !needsUserGesture && (
             <LessonInterface
               studentId={studentIdParam || 'guest'}
               hasLeftLesson={hasLeftLesson}
