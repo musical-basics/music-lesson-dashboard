@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef, useEffect } from "react"
+import React, { useState, useRef, useEffect, useCallback } from "react"
 import { convertWebmToMp4, uploadBlobToCloud } from "@/lib/ffmpeg-convert"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -23,8 +23,8 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 import { MediaDeviceSettings } from "@/components/device-selector"
-import { useLocalParticipant, useTracks, ParticipantTile } from "@livekit/components-react"
-import { Track } from "livekit-client"
+import { useLocalParticipant, useRoomContext, useTracks, ParticipantTile } from "@livekit/components-react"
+import { RoomEvent, Track, type Participant } from "livekit-client"
 
 import { Label } from "@/components/ui/label"
 
@@ -168,6 +168,7 @@ export function VideoPanel({
     // Refs for recording
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
     const streamRef = useRef<MediaStream | null>(null) // Reused across segments
+    const displayStreamRef = useRef<MediaStream | null>(null)
     const chunksRef = useRef<Blob[]>([]) // Buffer of chunks not yet uploaded (current segment)
     const allChunksRef = useRef<Blob[]>([]) // ALL chunks for current segment (local download)
     const totalSizeRef = useRef(0)
@@ -183,10 +184,16 @@ export function VideoPanel({
     const segmentNumberRef = useRef(0)
     const rotationTimerRef = useRef<NodeJS.Timeout | null>(null)
     const isRotatingRef = useRef(false) // true = auto-rotation, false = manual stop
+
+    // Recording audio graph refs. We mix LiveKit room audio into one track for MediaRecorder.
+    const audioCtxRef = useRef<AudioContext | null>(null)
+    const audioDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null)
+    const audioSourceNodesRef = useRef<MediaStreamAudioSourceNode[]>([])
     const SEGMENT_DURATION_MS = 10 * 60 * 1000 // 10 minutes
     const FLUSH_THRESHOLD = 10 * 1024 * 1024 // 10MB - uploads go directly to R2 via presigned URLs (no Vercel limit)
 
     const userId = "teacher-1" // TODO: Get from auth context
+    const room = useRoomContext()
 
     // Auto-enable camera and mic on mount
     useEffect(() => {
@@ -251,6 +258,149 @@ export function VideoPanel({
         } catch (e) {
             console.error("Failed to toggle mic:", e)
         }
+    }
+
+    const collectParticipantAudioTracks = useCallback((participant: Participant) => {
+        const tracks: { id: string; track: MediaStreamTrack }[] = []
+
+        participant.audioTrackPublications.forEach((publication) => {
+            const mediaTrack = publication.audioTrack?.mediaStreamTrack
+
+            if (!mediaTrack || publication.isMuted || mediaTrack.readyState !== "live") {
+                return
+            }
+
+            tracks.push({
+                id: `${participant.identity}:${publication.source}:${publication.trackSid || mediaTrack.id}`,
+                track: mediaTrack,
+            })
+        })
+
+        return tracks
+    }, [])
+
+    const collectRecordingAudioTracks = useCallback((displayStream: MediaStream | null) => {
+        const liveKitTracks = [
+            ...collectParticipantAudioTracks(room.localParticipant),
+            ...Array.from(room.remoteParticipants.values()).flatMap(collectParticipantAudioTracks),
+        ]
+
+        if (liveKitTracks.length > 0) {
+            return liveKitTracks
+        }
+
+        return (displayStream?.getAudioTracks() ?? [])
+            .filter((track) => track.readyState === "live")
+            .map((track) => ({
+                id: `display:${track.id}`,
+                track,
+            }))
+    }, [collectParticipantAudioTracks, room])
+
+    const rebuildRecordingAudioMix = useCallback(() => {
+        const audioCtx = audioCtxRef.current
+        const destination = audioDestinationRef.current
+
+        if (!audioCtx || !destination) return
+
+        audioSourceNodesRef.current.forEach((sourceNode) => {
+            try {
+                sourceNode.disconnect()
+            } catch {
+                // Already disconnected.
+            }
+        })
+        audioSourceNodesRef.current = []
+
+        const audioTracks = collectRecordingAudioTracks(displayStreamRef.current)
+
+        audioTracks.forEach(({ track }) => {
+            try {
+                const sourceNode = audioCtx.createMediaStreamSource(new MediaStream([track]))
+                sourceNode.connect(destination)
+                audioSourceNodesRef.current.push(sourceNode)
+            } catch (error) {
+                console.warn("[Recording] Could not add audio track to recording mix:", error)
+            }
+        })
+
+        console.log(`[Recording] Audio mix rebuilt with ${audioTracks.length} track(s):`, audioTracks.map(({ id }) => id))
+    }, [collectRecordingAudioTracks])
+
+    useEffect(() => {
+        const refreshRecordingAudio = () => rebuildRecordingAudioMix()
+
+        room
+            .on(RoomEvent.TrackSubscribed, refreshRecordingAudio)
+            .on(RoomEvent.TrackUnsubscribed, refreshRecordingAudio)
+            .on(RoomEvent.TrackMuted, refreshRecordingAudio)
+            .on(RoomEvent.TrackUnmuted, refreshRecordingAudio)
+            .on(RoomEvent.LocalTrackPublished, refreshRecordingAudio)
+            .on(RoomEvent.LocalTrackUnpublished, refreshRecordingAudio)
+            .on(RoomEvent.ParticipantConnected, refreshRecordingAudio)
+            .on(RoomEvent.ParticipantDisconnected, refreshRecordingAudio)
+
+        return () => {
+            room
+                .off(RoomEvent.TrackSubscribed, refreshRecordingAudio)
+                .off(RoomEvent.TrackUnsubscribed, refreshRecordingAudio)
+                .off(RoomEvent.TrackMuted, refreshRecordingAudio)
+                .off(RoomEvent.TrackUnmuted, refreshRecordingAudio)
+                .off(RoomEvent.LocalTrackPublished, refreshRecordingAudio)
+                .off(RoomEvent.LocalTrackUnpublished, refreshRecordingAudio)
+                .off(RoomEvent.ParticipantConnected, refreshRecordingAudio)
+                .off(RoomEvent.ParticipantDisconnected, refreshRecordingAudio)
+        }
+    }, [rebuildRecordingAudioMix, room])
+
+    const cleanupRecordingAudioMix = () => {
+        audioSourceNodesRef.current.forEach((sourceNode) => {
+            try {
+                sourceNode.disconnect()
+            } catch {
+                // Already disconnected.
+            }
+        })
+        audioSourceNodesRef.current = []
+
+        audioDestinationRef.current?.stream.getTracks().forEach((track) => track.stop())
+        audioDestinationRef.current = null
+
+        if (audioCtxRef.current) {
+            audioCtxRef.current.close()
+            audioCtxRef.current = null
+        }
+    }
+
+    const createRecordingStream = async (displayStream: MediaStream) => {
+        const audioCtx = new AudioContext()
+        const destination = audioCtx.createMediaStreamDestination()
+
+        audioCtxRef.current = audioCtx
+        audioDestinationRef.current = destination
+        displayStreamRef.current = displayStream
+
+        if (audioCtx.state === "suspended") {
+            await audioCtx.resume()
+        }
+
+        rebuildRecordingAudioMix()
+
+        return new MediaStream([
+            ...displayStream.getVideoTracks(),
+            ...destination.stream.getAudioTracks(),
+        ])
+    }
+
+    const getRecordingMimeType = () => {
+        const candidates = [
+            "video/webm;codecs=vp9,opus",
+            "video/webm;codecs=vp8,opus",
+            "video/webm;codecs=h264,opus",
+            "video/webm",
+        ]
+
+        return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate))
     }
 
     // --- PROGRESSIVE RECORDING LOGIC (R2 Multipart Upload via Presigned URLs) ---
@@ -548,7 +698,12 @@ export function VideoPanel({
         console.log(`[Recording] Segment ${segmentNum} started: ${key}`)
 
         // 2. Create new MediaRecorder on the same stream
-        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' })
+        const mimeType = getRecordingMimeType()
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+
+        console.log(
+            `[Recording] MediaRecorder started with ${stream.getVideoTracks().length} video track(s), ${stream.getAudioTracks().length} audio track(s), mimeType=${recorder.mimeType || "default"}`
+        )
 
         recorder.ondataavailable = (e) => {
             if (e.data.size > 0) {
@@ -594,6 +749,9 @@ export function VideoPanel({
             } else {
                 // Manual stop — kill the stream
                 stream.getTracks().forEach(track => track.stop())
+                displayStreamRef.current?.getTracks().forEach(track => track.stop())
+                displayStreamRef.current = null
+                cleanupRecordingAudioMix()
                 streamRef.current = null
             }
 
@@ -616,12 +774,17 @@ export function VideoPanel({
     }
 
     const startRecording = async () => {
+        let displayStream: MediaStream | null = null
+        let stream: MediaStream | null = null
+
         try {
-            const stream = await navigator.mediaDevices.getDisplayMedia({
+            displayStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { displaySurface: "browser" },
                 audio: true,
                 preferCurrentTab: true
             } as any)
+
+            stream = await createRecordingStream(displayStream)
 
             streamRef.current = stream
             segmentNumberRef.current = 0 // Reset segment counter
@@ -633,12 +796,18 @@ export function VideoPanel({
             setUploadStatus("")
 
             // Handle user stopping screen share
-            stream.getVideoTracks()[0].onended = () => {
+            displayStream.getVideoTracks()[0].onended = () => {
                 stopRecording()
             }
 
         } catch (err) {
             console.error("Error starting recording:", err)
+            stream?.getTracks().forEach(track => track.stop())
+            displayStream?.getTracks().forEach(track => track.stop())
+            streamRef.current = null
+            displayStreamRef.current = null
+            cleanupRecordingAudioMix()
+            setIsRecording(false)
             setUploadStatus("")
         }
     }
@@ -653,8 +822,18 @@ export function VideoPanel({
         // Mark as manual stop (not rotation)
         isRotatingRef.current = false
 
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop() // Triggers onstop with isFinal=true
+        const recorder = mediaRecorderRef.current
+        if (recorder && recorder.state === 'recording') {
+            recorder.stop() // Triggers onstop with isFinal=true
+            return
+        }
+
+        if (!recorder || recorder.state === 'inactive') {
+            streamRef.current?.getTracks().forEach(track => track.stop())
+            displayStreamRef.current?.getTracks().forEach(track => track.stop())
+            streamRef.current = null
+            displayStreamRef.current = null
+            cleanupRecordingAudioMix()
         }
     }
 
@@ -676,6 +855,9 @@ export function VideoPanel({
                 streamRef.current.getTracks().forEach(track => track.stop())
                 streamRef.current = null
             }
+            displayStreamRef.current?.getTracks().forEach(track => track.stop())
+            displayStreamRef.current = null
+            cleanupRecordingAudioMix()
 
             // Best-effort finalize current segment via sendBeacon
             if (uploadIdRef.current && uploadKeyRef.current) {

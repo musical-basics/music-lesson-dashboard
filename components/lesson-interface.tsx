@@ -1,8 +1,6 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -12,6 +10,7 @@ import {
   Rows2,
   Columns2,
   Maximize2,
+  Minimize2,
   PictureInPicture2,
   Video,
   Lock,
@@ -23,10 +22,9 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
-import { useRoomSync, ActivePiece, ViewMode, AspectRatio, DualLayout } from "@/hooks/use-room-sync"
+import { useRoomSync, ActivePiece, ViewMode, AspectRatio } from "@/hooks/use-room-sync"
 import { VideoAspectRatio, VideoPanel, AudioProcessingSettings } from "@/components/video-panel"
 import { PieceXmlEditor } from "@/components/piece-xml-editor"
-import { useToast } from "@/hooks/use-toast"
 
 
 interface LessonInterfaceProps {
@@ -43,7 +41,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
   const isStudent = role === 'student'
 
   // Room Sync: Teacher broadcasts, Student receives
-  const { activePiece, setRoomPiece, settings, setRoomSettings, isLoading: isRoomLoading } = useRoomSync(
+  const { activePiece, setRoomPiece, settings, setRoomSettings } = useRoomSync(
     studentId || "student-1",
     isStudent ? 'student' : 'teacher'
   )
@@ -53,7 +51,6 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
   const [localAspectRatio, setLocalAspectRatio] = useState<AspectRatio>("widescreen")
   const [pipPosition, setPipPosition] = useState<"left" | "right">("right")
   const [isEditingXml, setIsEditingXml] = useState(false)
-  const { toast } = useToast()
 
   // Derive effective view mode based on teacher control
   const isControlled = isStudent && settings.teacherControlEnabled
@@ -173,13 +170,78 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
   }
 
   const isMobile = useIsMobile()
+  const lessonShellRef = useRef<HTMLDivElement>(null)
   const [showSheetMusic, setShowSheetMusic] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // Sync isFullscreen state with browser fullscreen changes
+  useEffect(() => {
+    const onFsChange = () => {
+      const lessonIsNativeFullscreen = document.fullscreenElement === lessonShellRef.current
+
+      if (lessonIsNativeFullscreen || !document.fullscreenElement) {
+        setIsFullscreen(lessonIsNativeFullscreen)
+      }
+    }
+
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isFullscreen && !document.fullscreenElement) {
+        setIsFullscreen(false)
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [isFullscreen])
+
+  const toggleFullscreen = async () => {
+    const lessonShell = lessonShellRef.current
+    if (!lessonShell) return
+
+    if (isFullscreen) {
+      setIsFullscreen(false)
+
+      if (document.fullscreenElement === lessonShell) {
+        try {
+          await document.exitFullscreen()
+        } catch (error) {
+          console.error("Failed to exit lesson fullscreen:", error)
+        }
+      }
+
+      return
+    }
+
+    setIsFullscreen(true)
+
+    if (!document.fullscreenEnabled || !lessonShell.requestFullscreen) {
+      return
+    }
+
+    try {
+      if (document.fullscreenElement && document.fullscreenElement !== lessonShell) {
+        await document.exitFullscreen()
+      }
+
+      await lessonShell.requestFullscreen()
+    } catch (error) {
+      console.warn("Native fullscreen unavailable; using in-window lesson fullscreen.", error)
+    }
+  }
 
   // Controls are disabled when student is being controlled by teacher
   const controlsDisabled = isControlled
 
   return (
-    <div className="h-full flex flex-col bg-background relative">
+    <div
+      ref={lessonShellRef}
+      className={`${isFullscreen ? "fixed inset-0 z-[1000] h-screen w-screen" : "relative h-full"} flex flex-col bg-background overflow-hidden`}
+    >
       {/* View mode switcher - Only on Desktop */}
       {!isMobile && (
         <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-sidebar">
@@ -315,6 +377,23 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                 </div>
               </>
             )}
+
+            {/* Fullscreen Toggle — visible to both teacher and student */}
+            <div className="w-px h-5 bg-border mx-2" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? "Exit Full Screen" : "Full Screen"}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-3.5 h-3.5" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden sm:inline">{isFullscreen ? "Exit Full Screen" : "Full Screen"}</span>
+            </Button>
 
           </div>
         </div>
@@ -551,6 +630,21 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
               </Button>
             </div>
 
+            {!isFullscreen && (
+              <div className="absolute bottom-20 left-4 z-50">
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="rounded-full shadow-xl"
+                  onClick={toggleFullscreen}
+                  title="Full Screen"
+                  aria-label="Full Screen"
+                >
+                  <Maximize2 className="w-5 h-5" />
+                </Button>
+              </div>
+            )}
+
             {/* Teacher Control Indicator on Mobile */}
             {isStudent && settings.teacherControlEnabled && (
               <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-amber-500/90 text-white px-2 py-1 rounded-md text-xs z-50">
@@ -563,6 +657,21 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
 
       </div>
 
+
+      {/* Floating Exit Full Screen button — always accessible in fullscreen (both roles, both layouts) */}
+      {isFullscreen && (
+        <Button
+          variant="secondary"
+          size={isMobile ? "icon" : "sm"}
+          className={`${isMobile ? "absolute bottom-20 left-4" : "absolute bottom-4 right-4"} z-[9999] gap-1.5 text-xs shadow-lg`}
+          onClick={toggleFullscreen}
+          title="Exit Full Screen"
+          aria-label="Exit Full Screen"
+        >
+          <Minimize2 className="w-3.5 h-3.5" />
+          {!isMobile && "Exit Full Screen"}
+        </Button>
+      )}
 
       {isEditingXml && activePiece && (
         <PieceXmlEditor
