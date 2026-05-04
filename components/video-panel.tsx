@@ -1,7 +1,6 @@
 "use client"
 
 import React, { useState, useRef, useEffect, useCallback } from "react"
-import { convertWebmToMp4, uploadBlobToCloud } from "@/lib/ffmpeg-convert"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -170,7 +169,6 @@ export function VideoPanel({
     const streamRef = useRef<MediaStream | null>(null) // Reused across segments
     const displayStreamRef = useRef<MediaStream | null>(null)
     const chunksRef = useRef<Blob[]>([]) // Buffer of chunks not yet uploaded (current segment)
-    const allChunksRef = useRef<Blob[]>([]) // ALL chunks for current segment (local download)
     const totalSizeRef = useRef(0)
 
     // Multipart upload state refs (per-segment)
@@ -509,40 +507,22 @@ export function VideoPanel({
             })()
     }
 
-    // --- Process a completed segment (finalize, download, convert, upload) ---
+    // --- Process a completed segment (finalize upload and queue server-side MP4 conversion) ---
     const processSegment = async (snapshot: {
         uploadId: string
         uploadKey: string
         chunks: Blob[]
-        allChunks: Blob[]
         totalSize: number
         segmentNum: number
         isFinal: boolean
     }) => {
-        const { uploadId, uploadKey, allChunks, segmentNum, isFinal } = snapshot
+        const { uploadId, uploadKey, segmentNum, isFinal } = snapshot
         const segmentLabel = `Seg ${segmentNum}`
-        const MAX_CONVERT_SIZE = 200 * 1024 * 1024
 
-        // Build the full WebM blob for this segment
-        const webmBlob = allChunks.length > 0
-            ? new Blob(allChunks, { type: 'video/webm' })
-            : null
+        console.log(`[Recording] ${segmentLabel}: Finalizing WebM upload`)
 
-        if (!webmBlob || webmBlob.size === 0) {
-            console.warn(`[Recording] ${segmentLabel}: No data recorded`)
-            return
-        }
-
-        const sizeMB = (webmBlob.size / 1024 / 1024).toFixed(1)
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-        const baseName = `lesson_${studentId || 'recording'}_${timestamp}_part${segmentNum}`
-
-        console.log(`[Recording] ${segmentLabel}: Processing ${sizeMB} MB`)
-
-        // 1. Finalize WebM to cloud (progressive data is already in R2)
         setUploadStatus(`${segmentLabel}: Finalizing...`)
         try {
-            // Drain remaining buffer for this segment
             if (snapshot.chunks.length > 0) {
                 const finalBlob = new Blob(snapshot.chunks, { type: 'video/webm' })
 
@@ -561,7 +541,7 @@ export function VideoPanel({
                 })
                 if (response.ok) {
                     const data = await response.json()
-                    console.log(`[Recording] ${segmentLabel}: WebM finalized to cloud: ${data.url}`)
+                    console.log(`[Recording] ${segmentLabel}: WebM finalized to cloud: ${data.url}; MP4 conversion queued server-side`)
                 } else {
                     console.error(`[Recording] ${segmentLabel}: WebM finalize failed:`, response.statusText)
                 }
@@ -581,7 +561,7 @@ export function VideoPanel({
                 })
                 if (response.ok) {
                     const data = await response.json()
-                    console.log(`[Recording] ${segmentLabel}: WebM finalized to cloud: ${data.url}`)
+                    console.log(`[Recording] ${segmentLabel}: WebM finalized to cloud: ${data.url}; MP4 conversion queued server-side`)
                 } else {
                     console.error(`[Recording] ${segmentLabel}: WebM finalize failed:`, response.statusText)
                 }
@@ -590,82 +570,14 @@ export function VideoPanel({
             console.error(`[Recording] ${segmentLabel}: WebM cloud finalize error:`, e)
         }
 
-        // 2. Download WebM locally
-        setUploadStatus(`${segmentLabel}: Downloading .webm...`)
-        try {
-            const webmUrl = URL.createObjectURL(webmBlob)
-            const a = document.createElement('a')
-            a.href = webmUrl
-            a.download = `${baseName}.webm`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(webmUrl)
-            console.log(`[Recording] ${segmentLabel}: WebM downloaded (${sizeMB} MB)`)
-        } catch (dlErr) {
-            console.error(`[Recording] ${segmentLabel}: WebM download failed:`, dlErr)
-        }
-
-        // 3. MP4 conversion (only for segments under 200MB)
-        if (webmBlob.size <= MAX_CONVERT_SIZE) {
-            let mp4Blob: Blob | null = null
-            try {
-                setUploadStatus(`${segmentLabel}: Converting to MP4...`)
-                console.log(`[Recording] ${segmentLabel}: Starting MP4 conversion (${sizeMB} MB)`)
-                mp4Blob = await convertWebmToMp4(webmBlob, (pct) => {
-                    if (pct > 0) setUploadStatus(`${segmentLabel}: Converting ${pct}%`)
-                })
-                console.log(`[Recording] ${segmentLabel}: MP4 complete (${(mp4Blob.size / 1024 / 1024).toFixed(1)} MB)`)
-            } catch (convErr) {
-                console.error(`[Recording] ${segmentLabel}: MP4 conversion failed:`, convErr)
-            }
-
-            if (mp4Blob) {
-                // Download MP4
-                try {
-                    setUploadStatus(`${segmentLabel}: Downloading .mp4...`)
-                    const mp4Url = URL.createObjectURL(mp4Blob)
-                    const a = document.createElement('a')
-                    a.href = mp4Url
-                    a.download = `${baseName}.mp4`
-                    document.body.appendChild(a)
-                    a.click()
-                    document.body.removeChild(a)
-                    URL.revokeObjectURL(mp4Url)
-                    console.log(`[Recording] ${segmentLabel}: MP4 downloaded`)
-                } catch (dlErr) {
-                    console.error(`[Recording] ${segmentLabel}: MP4 download failed:`, dlErr)
-                }
-
-                // Upload MP4 to cloud
-                try {
-                    const mp4Filename = `${studentId || 'lesson'}_${Date.now()}_part${segmentNum}.mp4`
-                    const mp4CloudUrl = await uploadBlobToCloud(
-                        mp4Blob,
-                        mp4Filename,
-                        studentId || 'guest',
-                        userId,
-                        (msg) => setUploadStatus(`${segmentLabel}: ${msg}`)
-                    )
-                    if (mp4CloudUrl) {
-                        console.log(`[Recording] ${segmentLabel}: MP4 uploaded to cloud: ${mp4CloudUrl}`)
-                    }
-                } catch (uploadErr) {
-                    console.error(`[Recording] ${segmentLabel}: MP4 cloud upload failed:`, uploadErr)
-                }
-            }
-        } else {
-            console.log(`[Recording] ${segmentLabel}: Skipping MP4 conversion — ${sizeMB} MB too large`)
-        }
-
         // Clear status and show alert only for the final segment
         if (isFinal) {
             setUploadStatus("")
             setIsRecording(false)
             const totalSegments = segmentNum
-            alert(`✅ Recording complete!\n• ${totalSegments} segment${totalSegments > 1 ? 's' : ''} processed\n• WebM + MP4 downloaded locally\n• Uploaded to cloud`)
+            alert(`Recording complete!\n${totalSegments} segment${totalSegments > 1 ? 's' : ''} uploaded\nMP4 conversion will finish server-side`)
         } else {
-            setUploadStatus(`${segmentLabel} done. Recording...`)
+            setUploadStatus(`${segmentLabel} uploaded. Recording...`)
         }
     }
 
@@ -691,7 +603,6 @@ export function VideoPanel({
         partCounterRef.current = 0
         totalSizeRef.current = 0
         chunksRef.current = []
-        allChunksRef.current = []
         flushQueuedRef.current = false
         isFlushingRef.current = false
 
@@ -708,7 +619,6 @@ export function VideoPanel({
         recorder.ondataavailable = (e) => {
             if (e.data.size > 0) {
                 chunksRef.current.push(e.data)
-                allChunksRef.current.push(e.data)
 
                 if (getBufferSize() >= FLUSH_THRESHOLD) {
                     scheduleFlush()
@@ -726,7 +636,6 @@ export function VideoPanel({
                 uploadId: uploadIdRef.current!,
                 uploadKey: uploadKeyRef.current!,
                 chunks: [...chunksRef.current],
-                allChunks: [...allChunksRef.current],
                 totalSize: totalSizeRef.current,
                 segmentNum: currentSegmentNum,
                 isFinal: !rotating,
@@ -734,7 +643,6 @@ export function VideoPanel({
 
             // Clear current refs immediately
             chunksRef.current = []
-            allChunksRef.current = []
 
             if (rotating) {
                 // Start the next segment IMMEDIATELY (< 5ms gap)

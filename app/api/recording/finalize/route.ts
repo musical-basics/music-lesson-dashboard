@@ -16,6 +16,16 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+function getMp4Key(sourceKey: string) {
+    return sourceKey.toLowerCase().endsWith(".webm")
+        ? sourceKey.replace(/\.webm$/i, ".mp4")
+        : `${sourceKey}.mp4`;
+}
+
+function getPublicUrl(key: string) {
+    return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL?.replace(/\/$/, "")}/${key}`;
+}
+
 export async function POST(request: Request) {
     try {
         const contentType = request.headers.get("content-type") || "";
@@ -140,20 +150,44 @@ export async function POST(request: Request) {
             },
         }));
 
-        const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${key}`;
+        const publicUrl = getPublicUrl(key);
         console.log(`[Recording/Finalize] Complete! URL: ${publicUrl}`);
 
         // Save to classroom_recordings
-        const { error: dbError } = await supabase.from("classroom_recordings").insert({
+        const { data: recording, error: dbError } = await supabase.from("classroom_recordings").insert({
             student_id: studentId,
             teacher_id: teacherId,
             filename: `Lesson - ${new Date().toLocaleDateString()}`,
             url: publicUrl,
             size_bytes: totalSize,
-        });
+        }).select("id").single();
 
         if (dbError) {
             console.error("[Recording/Finalize] DB Error:", dbError);
+        }
+
+        let conversionJobQueued = false;
+        if (key.toLowerCase().endsWith(".webm")) {
+            const targetKey = getMp4Key(key);
+            const targetUrl = getPublicUrl(targetKey);
+
+            const { error: jobError } = await supabase.from("recording_conversion_jobs").insert({
+                recording_id: recording?.id || null,
+                source_key: key,
+                source_url: publicUrl,
+                target_key: targetKey,
+                target_url: targetUrl,
+                student_id: studentId,
+                teacher_id: teacherId,
+                status: "pending",
+            });
+
+            if (jobError) {
+                console.error("[Recording/Finalize] Failed to queue MP4 conversion:", jobError);
+            } else {
+                conversionJobQueued = true;
+                console.log(`[Recording/Finalize] Queued MP4 conversion: ${key} -> ${targetKey}`);
+            }
         }
 
         // Notify Piano Studio (best effort)
@@ -171,7 +205,7 @@ export async function POST(request: Request) {
             console.error("[Recording/Finalize] Piano Studio notification failed:", e);
         }
 
-        return NextResponse.json({ url: publicUrl, success: true });
+        return NextResponse.json({ url: publicUrl, success: true, conversionJobQueued });
     } catch (error) {
         console.error("[Recording/Finalize] Error:", error);
         return NextResponse.json({ error: "Failed to finalize recording", details: String(error) }, { status: 500 });

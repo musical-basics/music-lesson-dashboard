@@ -6,13 +6,12 @@
     "build": "next build",
     "dev": "rm -rf .next && next dev",
     "lint": "eslint .",
-    "start": "next start"
+    "start": "next start",
+    "worker:recordings": "node scripts/recording-converter.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.962.0",
     "@aws-sdk/s3-request-presigner": "^3.962.0",
-    "@ffmpeg/ffmpeg": "^0.12.15",
-    "@ffmpeg/util": "^0.12.2",
     "@hookform/resolvers": "^3.10.0",
     "@livekit/components-react": "^2.9.17",
     "@livekit/components-styles": "^1.2.0",
