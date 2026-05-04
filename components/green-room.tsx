@@ -5,11 +5,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Camera, Mic, Volume2, Loader2 } from "lucide-react"
 import {
   createLocalVideoTrack,
-  createLocalAudioTrack,
-  LocalVideoTrack,
-  LocalAudioTrack
+  LocalVideoTrack
 } from "livekit-client"
 import { VideoTrack } from "@livekit/components-react"
+import { getMusicAudioCaptureOptions } from "@/lib/music-audio"
 
 interface GreenRoomProps {
   onJoin?: (options: { audioDeviceId: string; videoDeviceId: string }) => void
@@ -18,8 +17,6 @@ interface GreenRoomProps {
 export function GreenRoom({ onJoin }: GreenRoomProps) {
   // 1. The Real Hardware Tracks
   const [videoTrack, setVideoTrack] = useState<LocalVideoTrack | null>(null);
-  const [audioTrack, setAudioTrack] = useState<LocalAudioTrack | null>(null);
-
   // 2. Device Lists
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
@@ -96,11 +93,7 @@ export function GreenRoom({ onJoin }: GreenRoomProps) {
       try {
         // 1. Get the raw audio stream
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: selectedAudioId,
-            echoCancellation: false, // Turn off processing to see raw volume
-            autoGainControl: false
-          }
+          audio: getMusicAudioCaptureOptions(selectedAudioId)
         });
 
         // 2. Setup Web Audio API
@@ -160,7 +153,6 @@ export function GreenRoom({ onJoin }: GreenRoomProps) {
   const handleJoin = () => {
     // Kill the preview tracks so the Real Room can take over
     videoTrack?.stop();
-    audioTrack?.stop();
 
     // Pass the selected IDs up to the main page
     if (onJoin) onJoin({

@@ -45,10 +45,10 @@ const DEFAULT_SETTINGS: RoomSettings = {
     aspectRatio: "widescreen",
     dualLayout: "vertical",
     teacherControlEnabled: false,
-    echoCancellation: true,
+    echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false,
-    studentEchoCancellation: true,
+    studentEchoCancellation: false,
     studentNoiseSuppression: false,
     studentAutoGainControl: false
 }

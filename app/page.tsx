@@ -13,6 +13,7 @@ import "@livekit/components-styles"
 import { AudioUnlockOverlay } from "@/components/audio-unlock-overlay"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
+import { getMusicAudioCaptureOptions, MUSIC_ROOM_OPTIONS } from "@/lib/music-audio"
 
 type View = "green-room" | "lesson" | "recital"
 
@@ -136,7 +137,7 @@ function MusicStudioContent() {
     : false;
 
   const audioProp = isLiveView
-    ? (userChoices ? { deviceId: userChoices.audioDeviceId } : true)
+    ? getMusicAudioCaptureOptions(userChoices?.audioDeviceId)
     : false;
 
   return (
@@ -185,6 +186,7 @@ function MusicStudioContent() {
           token={token}
           serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
           connect={!!token}
+          options={MUSIC_ROOM_OPTIONS}
           data-lk-theme="default"
           style={{ height: '100%' }}
         >

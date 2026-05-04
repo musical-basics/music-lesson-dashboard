@@ -24,6 +24,7 @@ import {
 import { MediaDeviceSettings } from "@/components/device-selector"
 import { useLocalParticipant, useRoomContext, useTracks, ParticipantTile } from "@livekit/components-react"
 import { RoomEvent, Track, type Participant } from "livekit-client"
+import { applyMusicTrackHint, getMusicAudioCaptureOptions } from "@/lib/music-audio"
 
 import { Label } from "@/components/ui/label"
 
@@ -187,34 +188,67 @@ export function VideoPanel({
     const audioCtxRef = useRef<AudioContext | null>(null)
     const audioDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null)
     const audioSourceNodesRef = useRef<MediaStreamAudioSourceNode[]>([])
+    const lastAppliedAudioSettingsRef = useRef<string | null>(null)
+    const micOptionsRef = useRef(getMusicAudioCaptureOptions(undefined, audioSettings))
     const SEGMENT_DURATION_MS = 10 * 60 * 1000 // 10 minutes
     const FLUSH_THRESHOLD = 10 * 1024 * 1024 // 10MB - uploads go directly to R2 via presigned URLs (no Vercel limit)
 
     const userId = "teacher-1" // TODO: Get from auth context
     const room = useRoomContext()
+    const getMicOptions = useCallback(() => getMusicAudioCaptureOptions(undefined, audioSettings), [
+        audioSettings.echoCancellation,
+        audioSettings.noiseSuppression,
+        audioSettings.autoGainControl,
+    ])
+    const applyLocalMusicHints = useCallback(() => {
+        localParticipant.audioTrackPublications.forEach((publication) => {
+            applyMusicTrackHint(publication.audioTrack?.mediaStreamTrack)
+        })
+    }, [localParticipant])
 
-    // Auto-enable camera and mic on mount
+    useEffect(() => {
+        micOptionsRef.current = getMicOptions()
+    }, [getMicOptions])
+
+    // Auto-enable camera on mount. LiveKitRoom publishes the mic with music-safe options.
     useEffect(() => {
         if (localParticipant) {
             localParticipant.setCameraEnabled(true)
-            localParticipant.setMicrophoneEnabled(true)
+            applyLocalMusicHints()
         }
-    }, [localParticipant])
+    }, [applyLocalMusicHints, localParticipant])
 
     // Apply audio processing settings when they change
     useEffect(() => {
         if (!localParticipant) return
 
         const applyAudioSettings = async () => {
-            const micOptions = {
-                echoCancellation: audioSettings.echoCancellation,
-                noiseSuppression: audioSettings.noiseSuppression,
-                autoGainControl: audioSettings.autoGainControl,
+            const micOptions = getMicOptions()
+            const settingsKey = JSON.stringify(micOptions)
+
+            if (lastAppliedAudioSettingsRef.current === null) {
+                lastAppliedAudioSettingsRef.current = settingsKey
+                applyLocalMusicHints()
+                return
             }
 
+            if (lastAppliedAudioSettingsRef.current === settingsKey) {
+                applyLocalMusicHints()
+                return
+            }
+
+            lastAppliedAudioSettingsRef.current = settingsKey
+
             try {
+                if (!localParticipant.isMicrophoneEnabled) {
+                    applyLocalMusicHints()
+                    console.log(`[Audio] Settings will apply next time the microphone is enabled:`, micOptions)
+                    return
+                }
+
                 await localParticipant.setMicrophoneEnabled(false)
                 await localParticipant.setMicrophoneEnabled(true, micOptions)
+                applyLocalMusicHints()
                 console.log(`[Audio] Settings applied:`, micOptions)
             } catch (e) {
                 console.error("Failed to apply audio settings:", e)
@@ -222,7 +256,7 @@ export function VideoPanel({
         }
 
         applyAudioSettings()
-    }, [audioSettings.echoCancellation, audioSettings.noiseSuppression, audioSettings.autoGainControl, localParticipant])
+    }, [applyLocalMusicHints, getMicOptions, localParticipant])
 
     // Mute/unmute camera & mic when teacher leaves/rejoins the lesson
     // This makes the teacher invisible to the student without disconnecting from LiveKit
@@ -236,9 +270,9 @@ export function VideoPanel({
         } else {
             console.log('[VideoPanel] Teacher rejoined lesson - re-enabling camera & mic')
             localParticipant.setCameraEnabled(true)
-            localParticipant.setMicrophoneEnabled(true)
+            localParticipant.setMicrophoneEnabled(true, micOptionsRef.current).then(applyLocalMusicHints)
         }
-    }, [hasLeftLesson, localParticipant, isStudent])
+    }, [applyLocalMusicHints, hasLeftLesson, localParticipant, isStudent])
 
     // Toggle camera via LiveKit
     const toggleCamera = async () => {
@@ -252,7 +286,9 @@ export function VideoPanel({
     // Toggle microphone via LiveKit
     const toggleMic = async () => {
         try {
-            await localParticipant.setMicrophoneEnabled(!isMicEnabled)
+            const shouldEnableMic = !isMicEnabled
+            await localParticipant.setMicrophoneEnabled(shouldEnableMic, shouldEnableMic ? getMicOptions() : undefined)
+            if (shouldEnableMic) applyLocalMusicHints()
         } catch (e) {
             console.error("Failed to toggle mic:", e)
         }
