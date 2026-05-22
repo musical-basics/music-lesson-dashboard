@@ -24,7 +24,7 @@ import {
 import { MediaDeviceSettings } from "@/components/device-selector"
 import { useLocalParticipant, useRoomContext, useTracks, ParticipantTile } from "@livekit/components-react"
 import { RoomEvent, Track, type Participant } from "livekit-client"
-import { applyMusicTrackHint, getMusicAudioCaptureOptions } from "@/lib/music-audio"
+import { applyAudioTrackHint, getMusicAudioCaptureOptions } from "@/lib/music-audio"
 
 import { Label } from "@/components/ui/label"
 
@@ -202,9 +202,9 @@ export function VideoPanel({
     ])
     const applyLocalMusicHints = useCallback(() => {
         localParticipant.audioTrackPublications.forEach((publication) => {
-            applyMusicTrackHint(publication.audioTrack?.mediaStreamTrack)
+            applyAudioTrackHint(publication.audioTrack?.mediaStreamTrack, audioSettings)
         })
-    }, [localParticipant])
+    }, [localParticipant, audioSettings])
 
     useEffect(() => {
         micOptionsRef.current = getMicOptions()
@@ -288,7 +288,7 @@ export function VideoPanel({
         try {
             const shouldEnableMic = !isMicEnabled
             await localParticipant.setMicrophoneEnabled(shouldEnableMic, shouldEnableMic ? getMicOptions() : undefined)
-            if (shouldEnableMic) applyLocalMusicHints()
+            if (shouldEnableMic) applyLocalMusicHints()  // applies correct contentHint based on audioSettings
         } catch (e) {
             console.error("Failed to toggle mic:", e)
         }

@@ -45,10 +45,10 @@ const DEFAULT_SETTINGS: RoomSettings = {
     aspectRatio: "widescreen",
     dualLayout: "vertical",
     teacherControlEnabled: false,
-    echoCancellation: false,
+    echoCancellation: true,  // ON by default — prevents speaker feedback during calls
     noiseSuppression: false,
     autoGainControl: false,
-    studentEchoCancellation: false,
+    studentEchoCancellation: true,  // ON by default for students too
     studentNoiseSuppression: false,
     studentAutoGainControl: false
 }

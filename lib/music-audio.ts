@@ -7,7 +7,7 @@ export interface MusicAudioProcessingSettings {
 }
 
 export const MUSIC_AUDIO_CAPTURE_OPTIONS: AudioCaptureOptions = {
-  echoCancellation: false,
+  echoCancellation: true,  // ON by default — prevents speaker feedback during calls
   noiseSuppression: false,
   autoGainControl: false,
   voiceIsolation: false,
@@ -44,11 +44,30 @@ export function getMusicAudioCaptureOptions(
   }
 }
 
-export function applyMusicTrackHint(track?: MediaStreamTrack | null) {
+/**
+ * Apply the correct content hint to an audio track based on the active processing settings.
+ *
+ * WHY THIS MATTERS: Setting contentHint="music" tells the browser to disable ALL audio
+ * processing (echo cancellation, noise suppression, AGC) regardless of getUserMedia constraints.
+ * We must use "speech" (which preserves browser processing) when any of those features are on.
+ */
+export function applyAudioTrackHint(
+  track: MediaStreamTrack | null | undefined,
+  settings?: MusicAudioProcessingSettings
+) {
   if (!track || track.kind !== "audio") return
 
+  // If any processing is enabled, use "speech" so the browser keeps EC/NS/AGC active.
+  // Only use "music" when all processing is off (pure music capture mode).
+  const processingEnabled =
+    settings?.echoCancellation ||
+    settings?.noiseSuppression ||
+    settings?.autoGainControl
+
+  const hint = processingEnabled ? "speech" : "music"
+
   try {
-    track.contentHint = "music"
+    track.contentHint = hint
   } catch {
     // Some browsers expose contentHint but ignore unsupported values.
   }
