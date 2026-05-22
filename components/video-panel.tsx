@@ -168,7 +168,6 @@ export function VideoPanel({
     // Refs for recording
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
     const streamRef = useRef<MediaStream | null>(null) // Reused across segments
-    const displayStreamRef = useRef<MediaStream | null>(null)
     const chunksRef = useRef<Blob[]>([]) // Buffer of chunks not yet uploaded (current segment)
     const totalSizeRef = useRef(0)
 
@@ -183,6 +182,10 @@ export function VideoPanel({
     const segmentNumberRef = useRef(0)
     const rotationTimerRef = useRef<NodeJS.Timeout | null>(null)
     const isRotatingRef = useRef(false) // true = auto-rotation, false = manual stop
+
+    // Canvas-based recording (replaces getDisplayMedia — avoids Chrome "being recorded" overlay)
+    const canvasRafRef = useRef<number | null>(null)
+    const recordingVideoElemsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
 
     // Recording audio graph refs. We mix LiveKit room audio into one track for MediaRecorder.
     const audioCtxRef = useRef<AudioContext | null>(null)
@@ -313,22 +316,11 @@ export function VideoPanel({
         return tracks
     }, [])
 
-    const collectRecordingAudioTracks = useCallback((displayStream: MediaStream | null) => {
-        const liveKitTracks = [
+    const collectRecordingAudioTracks = useCallback(() => {
+        return [
             ...collectParticipantAudioTracks(room.localParticipant),
             ...Array.from(room.remoteParticipants.values()).flatMap(collectParticipantAudioTracks),
         ]
-
-        if (liveKitTracks.length > 0) {
-            return liveKitTracks
-        }
-
-        return (displayStream?.getAudioTracks() ?? [])
-            .filter((track) => track.readyState === "live")
-            .map((track) => ({
-                id: `display:${track.id}`,
-                track,
-            }))
     }, [collectParticipantAudioTracks, room])
 
     const rebuildRecordingAudioMix = useCallback(() => {
@@ -346,7 +338,7 @@ export function VideoPanel({
         })
         audioSourceNodesRef.current = []
 
-        const audioTracks = collectRecordingAudioTracks(displayStreamRef.current)
+        const audioTracks = collectRecordingAudioTracks()
 
         audioTracks.forEach(({ track }) => {
             try {
@@ -406,13 +398,97 @@ export function VideoPanel({
         }
     }
 
-    const createRecordingStream = async (displayStream: MediaStream) => {
+    // Returns a MediaStreamTrack for a LiveKit video publication, backed by a hidden <video> element.
+    // We keep one <video> per track ID so the canvas draw loop can call drawImage on them.
+    const getOrCreateRecordingVideoElem = (track: MediaStreamTrack): HTMLVideoElement => {
+        const existing = recordingVideoElemsRef.current.get(track.id)
+        if (existing) return existing
+        const video = document.createElement('video')
+        video.autoplay = true
+        video.muted = true
+        video.playsInline = true
+        video.srcObject = new MediaStream([track])
+        video.play().catch(() => {})
+        recordingVideoElemsRef.current.set(track.id, video)
+        return video
+    }
+
+    // Collect live video tracks from all LiveKit participants (local first, then remote).
+    const getLiveKitVideoTracks = (): MediaStreamTrack[] => {
+        const tracks: MediaStreamTrack[] = []
+        room.localParticipant.videoTrackPublications.forEach(pub => {
+            const t = pub.videoTrack?.mediaStreamTrack
+            if (t && t.readyState === 'live' && !pub.isMuted) tracks.push(t)
+        })
+        room.remoteParticipants.forEach(participant => {
+            participant.videoTrackPublications.forEach(pub => {
+                const t = pub.videoTrack?.mediaStreamTrack
+                if (t && t.readyState === 'live' && !pub.isMuted) tracks.push(t)
+            })
+        })
+        return tracks
+    }
+
+    // Start canvas compositor: composites LiveKit video tracks into a single canvas stream.
+    // Returns the canvas stream to use as the video source for MediaRecorder.
+    // No getDisplayMedia is used, so Chrome never shows its "tab is being recorded" overlay.
+    const startCanvasCompositor = (): MediaStream => {
+        const CANVAS_W = 1920
+        const CANVAS_H = 1080
+        const canvas = document.createElement('canvas')
+        canvas.width = CANVAS_W
+        canvas.height = CANVAS_H
+        const ctx = canvas.getContext('2d', { alpha: false })!
+
+        const draw = () => {
+            ctx.fillStyle = '#000000'
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+
+            const tracks = getLiveKitVideoTracks()
+
+            if (tracks.length === 1) {
+                const video = getOrCreateRecordingVideoElem(tracks[0])
+                ctx.drawImage(video, 0, 0, CANVAS_W, CANVAS_H)
+            } else if (tracks.length >= 2) {
+                // Stack two videos side by side
+                const w = CANVAS_W / 2
+                tracks.slice(0, 2).forEach((track, i) => {
+                    const video = getOrCreateRecordingVideoElem(track)
+                    ctx.drawImage(video, i * w, 0, w, CANVAS_H)
+                })
+            }
+
+            // Prune stale video elements whose tracks are no longer live
+            const activeIds = new Set(tracks.map(t => t.id))
+            recordingVideoElemsRef.current.forEach((video, id) => {
+                if (!activeIds.has(id)) {
+                    video.srcObject = null
+                    recordingVideoElemsRef.current.delete(id)
+                }
+            })
+
+            canvasRafRef.current = requestAnimationFrame(draw)
+        }
+
+        draw()
+        return canvas.captureStream(30)
+    }
+
+    const stopCanvasCompositor = () => {
+        if (canvasRafRef.current) {
+            cancelAnimationFrame(canvasRafRef.current)
+            canvasRafRef.current = null
+        }
+        recordingVideoElemsRef.current.forEach(video => { video.srcObject = null })
+        recordingVideoElemsRef.current.clear()
+    }
+
+    const createRecordingStream = async (canvasVideoStream: MediaStream) => {
         const audioCtx = new AudioContext()
         const destination = audioCtx.createMediaStreamDestination()
 
         audioCtxRef.current = audioCtx
         audioDestinationRef.current = destination
-        displayStreamRef.current = displayStream
 
         if (audioCtx.state === "suspended") {
             await audioCtx.resume()
@@ -421,7 +497,7 @@ export function VideoPanel({
         rebuildRecordingAudioMix()
 
         return new MediaStream([
-            ...displayStream.getVideoTracks(),
+            ...canvasVideoStream.getVideoTracks(),
             ...destination.stream.getAudioTracks(),
         ])
     }
@@ -691,10 +767,9 @@ export function VideoPanel({
                     snapshot.isFinal = true
                 }
             } else {
-                // Manual stop — kill the stream
+                // Manual stop — tear down canvas compositor and stream
+                stopCanvasCompositor()
                 stream.getTracks().forEach(track => track.stop())
-                displayStreamRef.current?.getTracks().forEach(track => track.stop())
-                displayStreamRef.current = null
                 cleanupRecordingAudioMix()
                 streamRef.current = null
             }
@@ -718,38 +793,28 @@ export function VideoPanel({
     }
 
     const startRecording = async () => {
-        let displayStream: MediaStream | null = null
         let stream: MediaStream | null = null
 
         try {
-            displayStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { displaySurface: "browser" },
-                audio: true,
-                preferCurrentTab: true
-            } as any)
-
-            stream = await createRecordingStream(displayStream)
+            // Build recording stream from LiveKit tracks via canvas compositor.
+            // We deliberately avoid getDisplayMedia so Chrome never shows its
+            // "this tab is being recorded" overlay or interferes with fullscreen.
+            const canvasVideoStream = startCanvasCompositor()
+            stream = await createRecordingStream(canvasVideoStream)
 
             streamRef.current = stream
-            segmentNumberRef.current = 0 // Reset segment counter
+            segmentNumberRef.current = 0
             setIsRecording(true)
             setUploadStatus("Starting...")
 
-            // Start the first segment
             await startNewSegment(stream)
             setUploadStatus("")
-
-            // Handle user stopping screen share
-            displayStream.getVideoTracks()[0].onended = () => {
-                stopRecording()
-            }
 
         } catch (err) {
             console.error("Error starting recording:", err)
             stream?.getTracks().forEach(track => track.stop())
-            displayStream?.getTracks().forEach(track => track.stop())
             streamRef.current = null
-            displayStreamRef.current = null
+            stopCanvasCompositor()
             cleanupRecordingAudioMix()
             setIsRecording(false)
             setUploadStatus("")
@@ -773,10 +838,9 @@ export function VideoPanel({
         }
 
         if (!recorder || recorder.state === 'inactive') {
+            stopCanvasCompositor()
             streamRef.current?.getTracks().forEach(track => track.stop())
-            displayStreamRef.current?.getTracks().forEach(track => track.stop())
             streamRef.current = null
-            displayStreamRef.current = null
             cleanupRecordingAudioMix()
         }
     }
@@ -795,12 +859,11 @@ export function VideoPanel({
             }
 
             // Stop stream tracks
+            stopCanvasCompositor()
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop())
                 streamRef.current = null
             }
-            displayStreamRef.current?.getTracks().forEach(track => track.stop())
-            displayStreamRef.current = null
             cleanupRecordingAudioMix()
 
             // Best-effort finalize current segment via sendBeacon
