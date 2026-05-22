@@ -47,9 +47,13 @@ export function getMusicAudioCaptureOptions(
 /**
  * Apply the correct content hint to an audio track based on the active processing settings.
  *
- * WHY THIS MATTERS: Setting contentHint="music" tells the browser to disable ALL audio
- * processing (echo cancellation, noise suppression, AGC) regardless of getUserMedia constraints.
- * We must use "speech" (which preserves browser processing) when any of those features are on.
+ * WHY THIS MATTERS: The contentHint overrides getUserMedia constraints in most browsers:
+ *   "music"   → browser disables ALL processing (EC, NS, AGC) — ignores constraints
+ *   "speech"  → browser enables full voice processing pipeline
+ *   ""        → no hint; browser follows getUserMedia constraints exactly
+ *
+ * So for "music quality + echo cancellation" (EC=on, NS=off, AGC=off),
+ * we must use "" so the browser respects the individual constraints as-is.
  */
 export function applyAudioTrackHint(
   track: MediaStreamTrack | null | undefined,
@@ -57,14 +61,23 @@ export function applyAudioTrackHint(
 ) {
   if (!track || track.kind !== "audio") return
 
-  // If any processing is enabled, use "speech" so the browser keeps EC/NS/AGC active.
-  // Only use "music" when all processing is off (pure music capture mode).
-  const processingEnabled =
-    settings?.echoCancellation ||
-    settings?.noiseSuppression ||
-    settings?.autoGainControl
+  const ec  = settings?.echoCancellation  ?? false
+  const ns  = settings?.noiseSuppression  ?? false
+  const agc = settings?.autoGainControl   ?? false
 
-  const hint = processingEnabled ? "speech" : "music"
+  let hint: string
+  if (!ec && !ns && !agc) {
+    // Fully raw capture — tell browser to disable all processing
+    hint = "music"
+  } else if (ns || agc) {
+    // Full voice pipeline — browser can apply its speech processing
+    hint = "speech"
+  } else {
+    // Mixed mode (e.g. EC=on, NS=off, AGC=off):
+    // Empty string = no hint → browser follows getUserMedia constraints exactly.
+    // This is the correct setting for "music quality WITH echo cancellation".
+    hint = ""
+  }
 
   try {
     track.contentHint = hint
