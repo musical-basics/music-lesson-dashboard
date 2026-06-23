@@ -70,10 +70,44 @@ export async function POST(request: Request) {
 
         console.log(`[Recording/Finalize] Finalizing ${key} with ${parts.length} client-provided parts`);
 
-        // Upload final chunk if present
+        // R2 is the source of truth for which parts actually landed. During recording
+        // the browser flushes parts directly to R2 via presigned URLs WITHOUT tracking
+        // ETags, so we must enumerate them here. (The previous logic trusted the
+        // client-provided parts array — which is empty in the presigned flow — and
+        // therefore completed the upload with only the trailing chunk, discarding the
+        // entire recording.)
+        const listAllParts = async (): Promise<{ PartNumber: number; ETag: string; Size: number }[]> => {
+            const collected: { PartNumber: number; ETag: string; Size: number }[] = [];
+            let partMarker: string | undefined;
+            do {
+                const listResp = await r2.send(new ListPartsCommand({
+                    Bucket: process.env.R2_BUCKET_NAME,
+                    Key: key,
+                    UploadId: uploadId,
+                    PartNumberMarker: partMarker,
+                }));
+                if (listResp.Parts) {
+                    for (const part of listResp.Parts) {
+                        if (part.PartNumber && part.ETag) {
+                            collected.push({ PartNumber: part.PartNumber, ETag: part.ETag, Size: part.Size ?? 0 });
+                        }
+                    }
+                }
+                partMarker = listResp.IsTruncated ? String(listResp.NextPartNumberMarker) : undefined;
+            } while (partMarker);
+            return collected;
+        };
+
+        // Enumerate the parts already uploaded to R2 during recording.
+        let listedParts = await listAllParts();
+        console.log(`[Recording/Finalize] Found ${listedParts.length} already-uploaded parts in R2`);
+
+        // Upload the trailing final chunk (if any) as the NEXT part number after the
+        // highest one already in R2, so it appends to the recording instead of
+        // clobbering an existing part.
         if (finalChunk && finalChunk.size > 0) {
-            const nextPartNumber = parts.length > 0
-                ? Math.max(...parts.map(p => p.PartNumber)) + 1
+            const nextPartNumber = listedParts.length > 0
+                ? Math.max(...listedParts.map(p => p.PartNumber)) + 1
                 : 1;
 
             console.log(`[Recording/Finalize] Uploading final part ${nextPartNumber} (${finalChunk.size} bytes)`);
@@ -89,44 +123,27 @@ export async function POST(request: Request) {
                 Body: buffer,
             }));
 
-            parts.push({
+            listedParts.push({
                 PartNumber: nextPartNumber,
                 ETag: uploadPartResponse.ETag!,
+                Size: finalChunk.size,
             });
 
-            totalSize += finalChunk.size;
+            // Re-list so the completed set always reflects R2's authoritative state
+            // (covers the case where the final chunk overlaps an existing part number).
+            listedParts = await listAllParts();
         }
 
-        // If no parts with ETags from client (presigned URL flow),
-        // fetch all parts from R2 using ListParts
-        const hasValidETags = parts.length > 0 && parts.every(p => p.ETag);
-        if (!hasValidETags) {
-            console.log(`[Recording/Finalize] No valid client ETags, fetching parts from R2...`);
-            const allParts: { PartNumber: number; ETag: string }[] = [];
-            let partMarker: string | undefined;
-
-            // ListParts is paginated, loop until we have all parts
-            do {
-                const listResp = await r2.send(new ListPartsCommand({
-                    Bucket: process.env.R2_BUCKET_NAME,
-                    Key: key,
-                    UploadId: uploadId,
-                    PartNumberMarker: partMarker,
-                }));
-
-                if (listResp.Parts) {
-                    for (const part of listResp.Parts) {
-                        if (part.PartNumber && part.ETag) {
-                            allParts.push({ PartNumber: part.PartNumber, ETag: part.ETag });
-                        }
-                    }
-                }
-
-                partMarker = listResp.IsTruncated ? String(listResp.NextPartNumberMarker) : undefined;
-            } while (partMarker);
-
-            parts = allParts;
-            console.log(`[Recording/Finalize] Found ${parts.length} parts from R2`);
+        // Prefer R2's enumerated parts; fall back to any client-provided parts that
+        // carry real ETags (legacy direct-upload flow).
+        if (listedParts.length > 0) {
+            parts = listedParts.map(p => ({ PartNumber: p.PartNumber, ETag: p.ETag }));
+            // Derive the true byte size from the actual parts rather than trusting the
+            // client (which previously reported sizes that no longer matched R2).
+            const realSize = listedParts.reduce((sum, p) => sum + p.Size, 0);
+            if (realSize > 0) totalSize = realSize;
+        } else {
+            parts = parts.filter(p => p.ETag);
         }
 
         if (parts.length === 0) {
@@ -136,6 +153,8 @@ export async function POST(request: Request) {
 
         // Sort parts by PartNumber
         parts.sort((a, b) => a.PartNumber - b.PartNumber);
+
+        console.log(`[Recording/Finalize] Completing with ${parts.length} parts, ${totalSize} bytes total`);
 
         // Complete the multipart upload
         const completeResponse = await r2.send(new CompleteMultipartUploadCommand({
