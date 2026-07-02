@@ -183,6 +183,12 @@ export function VideoPanel({
     const rotationTimerRef = useRef<NodeJS.Timeout | null>(null)
     const isRotatingRef = useRef(false) // true = auto-rotation, false = manual stop
 
+    // Server-side recording (LiveKit Egress). The room is recorded on LiveKit's
+    // servers straight to R2, independent of this browser tab — so backgrounding,
+    // minimizing, or Chrome freezing the tab can no longer break a recording.
+    const egressIdRef = useRef<string | null>(null)
+    const egressKeyRef = useRef<string | null>(null)
+
     // Canvas-based recording (replaces getDisplayMedia — avoids Chrome "being recorded" overlay)
     const canvasRafRef = useRef<number | null>(null)
     const recordingVideoElemsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
@@ -793,101 +799,105 @@ export function VideoPanel({
     }
 
     const startRecording = async () => {
-        let stream: MediaStream | null = null
+        if (isRecording || egressIdRef.current) return
 
         try {
-            // Build recording stream from LiveKit tracks via canvas compositor.
-            // We deliberately avoid getDisplayMedia so Chrome never shows its
-            // "this tab is being recorded" overlay or interferes with fullscreen.
-            const canvasVideoStream = startCanvasCompositor()
-            stream = await createRecordingStream(canvasVideoStream)
-
-            streamRef.current = stream
-            segmentNumberRef.current = 0
-            setIsRecording(true)
             setUploadStatus("Starting...")
 
-            await startNewSegment(stream)
-            setUploadStatus("")
+            const res = await fetch('/api/recording/egress/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    roomName: room.name,
+                    studentId: studentId || 'guest',
+                }),
+            })
 
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}))
+                throw new Error(err.error || 'Failed to start recording')
+            }
+
+            const data = await res.json()
+            egressIdRef.current = data.egressId
+            egressKeyRef.current = data.key
+
+            setIsRecording(true)
+            setUploadStatus("")
         } catch (err) {
             console.error("Error starting recording:", err)
-            stream?.getTracks().forEach(track => track.stop())
-            streamRef.current = null
-            stopCanvasCompositor()
-            cleanupRecordingAudioMix()
+            egressIdRef.current = null
+            egressKeyRef.current = null
             setIsRecording(false)
             setUploadStatus("")
+            alert("Couldn't start the recording. Please try again.")
         }
     }
 
-    const stopRecording = () => {
-        // Clear rotation timer
-        if (rotationTimerRef.current) {
-            clearTimeout(rotationTimerRef.current)
-            rotationTimerRef.current = null
-        }
+    const stopRecording = async () => {
+        const egressId = egressIdRef.current
+        const key = egressKeyRef.current
 
-        // Mark as manual stop (not rotation)
-        isRotatingRef.current = false
+        // Reset UI + refs immediately so the button can't double-fire.
+        setIsRecording(false)
+        egressIdRef.current = null
+        egressKeyRef.current = null
 
-        const recorder = mediaRecorderRef.current
-        if (recorder && recorder.state === 'recording') {
-            recorder.stop() // Triggers onstop with isFinal=true
-            return
-        }
+        if (!egressId || !key) return
 
-        if (!recorder || recorder.state === 'inactive') {
-            stopCanvasCompositor()
-            streamRef.current?.getTracks().forEach(track => track.stop())
-            streamRef.current = null
-            cleanupRecordingAudioMix()
+        setUploadStatus("Saving...")
+
+        try {
+            const res = await fetch('/api/recording/egress/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    egressId,
+                    key,
+                    studentId: studentId || 'guest',
+                    teacherId: userId,
+                }),
+            })
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}))
+                throw new Error(err.error || 'Failed to stop recording')
+            }
+
+            setUploadStatus("")
+            alert("Recording saved! It will appear in the recordings library in a few seconds.")
+        } catch (err) {
+            console.error("Error stopping recording:", err)
+            setUploadStatus("")
+            alert("The recording was stopped, but saving it may have failed. Check the recordings library shortly.")
         }
     }
 
     // Handle tab close / navigation away while recording
     useEffect(() => {
         const handleUnload = () => {
-            // Clear rotation timer
-            if (rotationTimerRef.current) {
-                clearTimeout(rotationTimerRef.current)
-                rotationTimerRef.current = null
-            }
-
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-                mediaRecorderRef.current.stop()
-            }
-
-            // Stop stream tracks
-            stopCanvasCompositor()
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop())
-                streamRef.current = null
-            }
-            cleanupRecordingAudioMix()
-
-            // Best-effort finalize current segment via sendBeacon
-            if (uploadIdRef.current && uploadKeyRef.current) {
-                const formData = new FormData()
-                formData.append('uploadId', uploadIdRef.current)
-                formData.append('key', uploadKeyRef.current)
-                formData.append('parts', JSON.stringify([]))
-                formData.append('studentId', studentId || 'guest')
-                formData.append('teacherId', userId)
-                formData.append('totalSize', String(totalSizeRef.current))
-
-                // Include any remaining buffered chunks as final part
-                if (chunksRef.current.length > 0) {
-                    const finalBlob = new Blob(chunksRef.current, { type: 'video/webm' })
-                    formData.append('finalChunk', finalBlob, 'final.webm')
-                }
-
-                navigator.sendBeacon('/api/recording/finalize', formData)
+            // Best-effort stop of the server-side egress if the tab closes while
+            // recording. (Even if this beacon is dropped, LiveKit auto-stops the
+            // room-composite egress when the room empties, so the file is still
+            // written to R2 — this beacon just also records the DB row.)
+            if (egressIdRef.current && egressKeyRef.current) {
+                const payload = JSON.stringify({
+                    egressId: egressIdRef.current,
+                    key: egressKeyRef.current,
+                    studentId: studentId || 'guest',
+                    teacherId: userId,
+                })
+                navigator.sendBeacon(
+                    '/api/recording/egress/stop',
+                    new Blob([payload], { type: 'application/json' })
+                )
+                egressIdRef.current = null
+                egressKeyRef.current = null
             }
         }
 
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            if (egressIdRef.current) {
                 e.preventDefault()
             }
         }
