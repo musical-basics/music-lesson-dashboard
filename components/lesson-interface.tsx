@@ -16,7 +16,8 @@ import {
   Lock,
   Unlock,
   LogOut,
-  LogIn
+  LogIn,
+  PhoneOff
 } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
@@ -630,20 +631,45 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
               </Button>
             </div>
 
-            {!isFullscreen && (
-              <div className="absolute bottom-20 left-4 z-50">
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="rounded-full shadow-xl"
-                  onClick={toggleFullscreen}
-                  title="Full Screen"
-                  aria-label="Full Screen"
-                >
-                  <Maximize2 className="w-5 h-5" />
-                </Button>
-              </div>
-            )}
+            {/* LAYER C2: Left-side floating controls (fullscreen toggle + teacher End Call) */}
+            <div className="absolute bottom-20 left-4 z-50 flex flex-col gap-2">
+              <Button
+                variant="secondary"
+                size="icon"
+                className="rounded-full shadow-xl"
+                onClick={toggleFullscreen}
+                title={isFullscreen ? "Exit Full Screen" : "Full Screen"}
+                aria-label={isFullscreen ? "Exit Full Screen" : "Full Screen"}
+              >
+                {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+              </Button>
+
+              {/* End Call / Rejoin — Teacher only */}
+              {!isStudent && (
+                hasLeftLesson ? (
+                  <Button
+                    size="icon"
+                    className="rounded-full shadow-xl bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={onRejoinLesson}
+                    title="Rejoin Lesson"
+                    aria-label="Rejoin Lesson"
+                  >
+                    <LogIn className="w-5 h-5" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    className="rounded-full shadow-xl"
+                    onClick={onLeaveLesson}
+                    title="End Call"
+                    aria-label="End Call"
+                  >
+                    <PhoneOff className="w-5 h-5" />
+                  </Button>
+                )
+              )}
+            </div>
 
             {/* Teacher Control Indicator on Mobile */}
             {isStudent && settings.teacherControlEnabled && (
@@ -658,18 +684,18 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
       </div>
 
 
-      {/* Floating Exit Full Screen button — always accessible in fullscreen (both roles, both layouts) */}
-      {isFullscreen && (
+      {/* Floating Exit Full Screen button — desktop only (mobile has its own toggle in the left stack) */}
+      {isFullscreen && !isMobile && (
         <Button
           variant="secondary"
-          size={isMobile ? "icon" : "sm"}
-          className={`${isMobile ? "absolute bottom-20 left-4" : "absolute bottom-4 right-4"} z-[9999] gap-1.5 text-xs shadow-lg`}
+          size="sm"
+          className="absolute bottom-4 right-4 z-[9999] gap-1.5 text-xs shadow-lg"
           onClick={toggleFullscreen}
           title="Exit Full Screen"
           aria-label="Exit Full Screen"
         >
           <Minimize2 className="w-3.5 h-3.5" />
-          {!isMobile && "Exit Full Screen"}
+          Exit Full Screen
         </Button>
       )}
 
