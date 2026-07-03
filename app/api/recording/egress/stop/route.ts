@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { EgressClient } from "livekit-server-sdk";
+import { EgressClient, EgressStatus } from "livekit-server-sdk";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -41,6 +41,17 @@ export async function POST(request: Request) {
         let fileSize = 0;
         try {
             const info = await egressClient.stopEgress(egressId);
+            // If stop landed before the recording pipeline spun up, LiveKit
+            // aborts and no file will ever be written — don't create a library
+            // row pointing at a file that doesn't exist.
+            if (info?.status === EgressStatus.EGRESS_ABORTED) {
+                console.log(`[Recording/Egress] Egress ${egressId} aborted before start; skipping library row`);
+                return NextResponse.json({
+                    success: true,
+                    aborted: true,
+                    message: "Recording was stopped before it could start, so nothing was saved.",
+                });
+            }
             // fileResults may already carry the size; if not it stays 0 and the
             // recording still plays once R2 finishes receiving the object.
             const result = info?.fileResults?.[0];

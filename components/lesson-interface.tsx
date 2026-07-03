@@ -186,9 +186,11 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
   const [recordingStatus, setRecordingStatus] = useState("")
   const egressIdRef = useRef<string | null>(null)
   const egressKeyRef = useRef<string | null>(null)
+  const isStartingRef = useRef(false) // guards against double-click while the start request is in flight
 
   const startRecording = async () => {
-    if (isRecording || egressIdRef.current) return
+    if (isRecording || egressIdRef.current || isStartingRef.current) return
+    isStartingRef.current = true
     try {
       setRecordingStatus("Starting...")
       const res = await fetch("/api/recording/egress/start", {
@@ -212,6 +214,8 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
       setIsRecording(false)
       setRecordingStatus("")
       alert("Couldn't start the recording. Please try again.")
+    } finally {
+      isStartingRef.current = false
     }
   }
 
@@ -233,8 +237,13 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || "Failed to stop recording")
       }
+      const data = await res.json().catch(() => ({} as { aborted?: boolean }))
       setRecordingStatus("")
-      alert("Recording saved! It will appear in the recordings library in a few seconds.")
+      if (data.aborted) {
+        alert("Recording was stopped before it could start — nothing was saved.")
+      } else {
+        alert("Recording saved! It will appear in the recordings library in a few seconds.")
+      }
     } catch (err) {
       console.error("Error stopping recording:", err)
       setRecordingStatus("")

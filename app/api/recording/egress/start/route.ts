@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
     EgressClient,
+    EgressStatus,
     EncodedFileOutput,
     EncodedFileType,
     S3Upload,
@@ -40,6 +41,34 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "LiveKit credentials not configured" }, { status: 500 });
         }
 
+        // If this room already has a recording running (e.g. the page was
+        // reloaded mid-lesson and the UI lost its handle), reattach to it
+        // instead of starting a duplicate. LiveKit projects have a low
+        // concurrent-egress limit, and a duplicate would both burn it and
+        // leave the original recording orphaned.
+        const egressClient = new EgressClient(livekitHttpUrl(), apiKey, apiSecret);
+        try {
+            const running = await egressClient.listEgress({ roomName, active: true });
+            const active = running.find(e => e.status === EgressStatus.EGRESS_STARTING || e.status === EgressStatus.EGRESS_ACTIVE);
+            if (active) {
+                const existingKey = active.request?.case === "roomComposite"
+                    ? active.request.value.fileOutputs?.[0]?.filepath
+                    : undefined;
+                if (existingKey) {
+                    console.log(`[Recording/Egress] Reattaching to active egress ${active.egressId} for room ${roomName}`);
+                    return NextResponse.json({
+                        egressId: active.egressId,
+                        key: existingKey,
+                        url: getPublicUrl(existingKey),
+                        reattached: true,
+                    });
+                }
+            }
+        } catch (e) {
+            // Listing failed — fall through and try a fresh start rather than block recording.
+            console.error("[Recording/Egress] listEgress failed (continuing with fresh start):", e);
+        }
+
         // MP4 output written straight to R2. Egress produces H.264/AAC, which is
         // directly playable in the browser — no WebM->MP4 conversion step needed.
         const key = `${studentId}_${Date.now()}.mp4`;
@@ -59,8 +88,6 @@ export async function POST(request: Request) {
                 }),
             },
         });
-
-        const egressClient = new EgressClient(livekitHttpUrl(), apiKey, apiSecret);
 
         const info = await egressClient.startRoomCompositeEgress(
             roomName,
