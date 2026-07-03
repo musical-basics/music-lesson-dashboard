@@ -19,6 +19,7 @@ import {
   LogIn,
   PhoneOff
 } from "lucide-react"
+import { useRoomContext } from "@livekit/components-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
@@ -174,6 +175,111 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
   const lessonShellRef = useRef<HTMLDivElement>(null)
   const [showSheetMusic, setShowSheetMusic] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // ---- Lesson recording (server-side LiveKit Egress) ----
+  // Owned here, not in VideoPanel, because VideoPanel unmounts/remounts when the
+  // teacher switches view modes or toggles sheet music. LessonInterface stays
+  // mounted for the whole lesson, so the recording handle survives those toggles.
+  const room = useRoomContext()
+  const teacherId = "teacher-1" // TODO: derive from auth context
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingStatus, setRecordingStatus] = useState("")
+  const egressIdRef = useRef<string | null>(null)
+  const egressKeyRef = useRef<string | null>(null)
+
+  const startRecording = async () => {
+    if (isRecording || egressIdRef.current) return
+    try {
+      setRecordingStatus("Starting...")
+      const res = await fetch("/api/recording/egress/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomName: room.name, studentId: studentId || "guest" }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to start recording")
+      }
+      const data = await res.json()
+      egressIdRef.current = data.egressId
+      egressKeyRef.current = data.key
+      setIsRecording(true)
+      setRecordingStatus("")
+    } catch (err) {
+      console.error("Error starting recording:", err)
+      egressIdRef.current = null
+      egressKeyRef.current = null
+      setIsRecording(false)
+      setRecordingStatus("")
+      alert("Couldn't start the recording. Please try again.")
+    }
+  }
+
+  const stopRecording = async () => {
+    const egressId = egressIdRef.current
+    const key = egressKeyRef.current
+    setIsRecording(false)
+    egressIdRef.current = null
+    egressKeyRef.current = null
+    if (!egressId || !key) return
+    setRecordingStatus("Saving...")
+    try {
+      const res = await fetch("/api/recording/egress/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ egressId, key, studentId: studentId || "guest", teacherId }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to stop recording")
+      }
+      setRecordingStatus("")
+      alert("Recording saved! It will appear in the recordings library in a few seconds.")
+    } catch (err) {
+      console.error("Error stopping recording:", err)
+      setRecordingStatus("")
+      alert("The recording was stopped, but saving it may have failed. Check the recordings library shortly.")
+    }
+  }
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }
+
+  // Stop the egress if the tab closes mid-recording. (LiveKit also auto-stops the
+  // egress when the room empties, so the file is written either way — this beacon
+  // just also records the library row.)
+  useEffect(() => {
+    const handleUnload = () => {
+      if (egressIdRef.current && egressKeyRef.current) {
+        const payload = JSON.stringify({
+          egressId: egressIdRef.current,
+          key: egressKeyRef.current,
+          studentId: studentId || "guest",
+          teacherId,
+        })
+        navigator.sendBeacon(
+          "/api/recording/egress/stop",
+          new Blob([payload], { type: "application/json" })
+        )
+        egressIdRef.current = null
+        egressKeyRef.current = null
+      }
+    }
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (egressIdRef.current) e.preventDefault()
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    window.addEventListener("pagehide", handleUnload)
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      window.removeEventListener("pagehide", handleUnload)
+    }
+  }, [studentId])
 
   // Sync isFullscreen state with browser fullscreen changes
   useEffect(() => {
@@ -481,6 +587,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                       hasLeftLesson={hasLeftLesson}
+                      isRecording={isRecording}
+                      recordingStatus={recordingStatus}
+                      onToggleRecording={toggleRecording}
                     />
                   </div>
                 </div>
@@ -555,6 +664,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                       hasLeftLesson={hasLeftLesson}
+                      isRecording={isRecording}
+                      recordingStatus={recordingStatus}
+                      onToggleRecording={toggleRecording}
                     />
                   </div>
                 </div>
@@ -590,6 +702,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                   studentAudioSettings={!isStudent ? studentAudioSettings : undefined}
                   onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                   hasLeftLesson={hasLeftLesson}
+                  isRecording={isRecording}
+                  recordingStatus={recordingStatus}
+                  onToggleRecording={toggleRecording}
                 />
 
               </div>

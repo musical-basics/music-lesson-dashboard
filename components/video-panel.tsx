@@ -55,6 +55,13 @@ export interface VideoPanelProps {
     studentAudioSettings?: AudioProcessingSettings
     onStudentAudioSettingsChange?: (settings: Partial<AudioProcessingSettings>) => void
     hasLeftLesson?: boolean
+    // Controlled recording: when provided, the record button reflects/drives
+    // recording state owned by a parent that stays mounted across view-mode and
+    // sheet-music toggles (see LessonInterface). Falls back to internal state
+    // when omitted.
+    isRecording?: boolean
+    recordingStatus?: string
+    onToggleRecording?: () => void
 }
 
 // ============================================================================
@@ -152,7 +159,10 @@ export function VideoPanel({
     showOverlay = true,
     studentAudioSettings,
     onStudentAudioSettingsChange,
-    hasLeftLesson = false
+    hasLeftLesson = false,
+    isRecording: isRecordingProp,
+    recordingStatus,
+    onToggleRecording,
 }: VideoPanelProps) {
     // LiveKit local participant for camera/mic control
     const { localParticipant } = useLocalParticipant()
@@ -919,6 +929,13 @@ export function VideoPanel({
         }
     }
 
+    // Recording can be driven either by a parent (controlled — survives view-mode
+    // and sheet-music toggles) or by this component's own state (fallback).
+    const recordingControlled = onToggleRecording !== undefined
+    const effectiveIsRecording = recordingControlled ? !!isRecordingProp : isRecording
+    const effectiveRecordingStatus = recordingControlled ? (recordingStatus ?? "") : uploadStatus
+    const handleRecordToggle = recordingControlled ? onToggleRecording! : handleRecordClick
+
     return (
         <div className={`flex ${controlsPosition === 'right' ? 'flex-row' : 'flex-col'} ${className}`}>
             {/* Video Display */}
@@ -1122,9 +1139,9 @@ export function VideoPanel({
                 </div>
 
                 {/* Upload Status (always visible, even after leaving lesson) */}
-                {!isStudent && uploadStatus && (
-                    <span className="text-[10px] text-muted-foreground text-center leading-tight max-w-[48px] overflow-hidden text-ellipsis whitespace-nowrap" title={uploadStatus}>
-                        {uploadStatus}
+                {!isStudent && effectiveRecordingStatus && (
+                    <span className="text-[10px] text-muted-foreground text-center leading-tight max-w-[48px] overflow-hidden text-ellipsis whitespace-nowrap" title={effectiveRecordingStatus}>
+                        {effectiveRecordingStatus}
                     </span>
                 )}
 
@@ -1132,13 +1149,13 @@ export function VideoPanel({
                 {!isStudent && (
                     <div className={`flex ${controlsPosition === "right" ? "flex-col mt-auto" : "items-center"} gap-2`}>
                         <Button
-                            variant={isRecording ? "destructive" : "ghost"}
+                            variant={effectiveIsRecording ? "destructive" : "ghost"}
                             size="sm"
                             className="w-8 h-8 p-0"
-                            onClick={handleRecordClick}
-                            title={isRecording ? "Stop Recording" : "Start Recording"}
+                            onClick={handleRecordToggle}
+                            title={effectiveIsRecording ? "Stop Recording" : "Start Recording"}
                         >
-                            {isRecording ? (
+                            {effectiveIsRecording ? (
                                 <Square className="w-4 h-4" />
                             ) : (
                                 <CircleDot className="w-4 h-4" />
