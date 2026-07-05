@@ -738,7 +738,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
             )}
 
             {/* LAYER C: The Toggle Button (Floating) */}
-            <div className="absolute bottom-20 right-4 z-50">
+            <div className="absolute bottom-20 right-[max(1rem,env(safe-area-inset-right))] z-50">
               <Button
                 onClick={() => setShowSheetMusic(!showSheetMusic)}
                 size="lg"
@@ -757,7 +757,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
             </div>
 
             {/* LAYER C2: Left-side floating controls (fullscreen toggle + teacher End Call) */}
-            <div className="absolute bottom-20 left-4 z-50 flex flex-col gap-2">
+            <div className="absolute bottom-20 left-[max(1rem,env(safe-area-inset-left))] z-50 flex flex-col gap-2">
               <Button
                 variant="secondary"
                 size="icon"

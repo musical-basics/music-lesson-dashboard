@@ -978,7 +978,7 @@ export function VideoPanel({
                 className={
                     controlsPosition === "right"
                         ? "flex flex-col items-center justify-start gap-6 p-2 bg-sidebar border-l border-border w-16 overflow-y-auto"
-                        : "flex items-center justify-between gap-2 p-2 bg-sidebar border-t border-border overflow-x-auto"
+                        : "flex items-center justify-between gap-2 p-2 bg-sidebar border-t border-border overflow-x-auto pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))]"
                 }
             >
                 {/* Camera/Mic Controls */}
