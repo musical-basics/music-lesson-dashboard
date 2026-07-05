@@ -290,23 +290,47 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     }
   }, [studentId])
 
+  // iOS Safari only exposes the Fullscreen API under webkit-prefixed names.
+  const getFullscreenElement = () => {
+    const doc = document as Document & { webkitFullscreenElement?: Element | null }
+    return doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null
+  }
+
+  const requestNativeFullscreen = (el: HTMLElement) => {
+    const target = el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }
+    if (target.requestFullscreen) return target.requestFullscreen()
+    if (target.webkitRequestFullscreen) return target.webkitRequestFullscreen()
+    throw new Error("Fullscreen API unavailable")
+  }
+
+  const exitNativeFullscreen = () => {
+    const doc = document as Document & { webkitExitFullscreen?: () => Promise<void> | void }
+    if (doc.exitFullscreen) return doc.exitFullscreen()
+    if (doc.webkitExitFullscreen) return doc.webkitExitFullscreen()
+  }
+
   // Sync isFullscreen state with browser fullscreen changes
   useEffect(() => {
     const onFsChange = () => {
-      const lessonIsNativeFullscreen = document.fullscreenElement === lessonShellRef.current
+      const fsElement = getFullscreenElement()
+      const lessonIsNativeFullscreen = fsElement === lessonShellRef.current
 
-      if (lessonIsNativeFullscreen || !document.fullscreenElement) {
+      if (lessonIsNativeFullscreen || !fsElement) {
         setIsFullscreen(lessonIsNativeFullscreen)
       }
     }
 
     document.addEventListener('fullscreenchange', onFsChange)
-    return () => document.removeEventListener('fullscreenchange', onFsChange)
+    document.addEventListener('webkitfullscreenchange', onFsChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.removeEventListener('webkitfullscreenchange', onFsChange)
+    }
   }, [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isFullscreen && !document.fullscreenElement) {
+      if (event.key === "Escape" && isFullscreen && !getFullscreenElement()) {
         setIsFullscreen(false)
       }
     }
@@ -322,9 +346,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     if (isFullscreen) {
       setIsFullscreen(false)
 
-      if (document.fullscreenElement === lessonShell) {
+      if (getFullscreenElement() === lessonShell) {
         try {
-          await document.exitFullscreen()
+          await exitNativeFullscreen()
         } catch (error) {
           console.error("Failed to exit lesson fullscreen:", error)
         }
@@ -335,16 +359,13 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
 
     setIsFullscreen(true)
 
-    if (!document.fullscreenEnabled || !lessonShell.requestFullscreen) {
-      return
-    }
-
     try {
-      if (document.fullscreenElement && document.fullscreenElement !== lessonShell) {
-        await document.exitFullscreen()
+      const fsElement = getFullscreenElement()
+      if (fsElement && fsElement !== lessonShell) {
+        await exitNativeFullscreen()
       }
 
-      await lessonShell.requestFullscreen()
+      await requestNativeFullscreen(lessonShell)
     } catch (error) {
       console.warn("Native fullscreen unavailable; using in-window lesson fullscreen.", error)
     }
