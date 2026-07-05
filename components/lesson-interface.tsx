@@ -714,6 +714,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                   isRecording={isRecording}
                   recordingStatus={recordingStatus}
                   onToggleRecording={toggleRecording}
+                  layout={settings.dualLayout}
                 />
 
               </div>
@@ -767,6 +768,20 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
               >
                 {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
               </Button>
+
+              {/* Video layout toggle — icon shows the layout tapping switches to */}
+              {!showSheetMusic && (
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="rounded-full shadow-xl"
+                  onClick={() => setRoomSettings({ dualLayout: settings.dualLayout === "vertical" ? "horizontal" : "vertical" })}
+                  title={settings.dualLayout === "vertical" ? "Side by Side" : "Top / Bottom"}
+                  aria-label={settings.dualLayout === "vertical" ? "Side by Side" : "Top / Bottom"}
+                >
+                  {settings.dualLayout === "vertical" ? <Columns2 className="w-5 h-5" /> : <Rows2 className="w-5 h-5" />}
+                </Button>
+              )}
 
               {/* End Call / Rejoin — Teacher only */}
               {!isStudent && (
