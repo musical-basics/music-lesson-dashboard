@@ -17,10 +17,13 @@ import {
   Unlock,
   LogOut,
   LogIn,
-  PhoneOff
+  PhoneOff,
+  Link2,
+  Check
 } from "lucide-react"
 import { useRoomContext } from "@livekit/components-react"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { useIsMobile, useIsShortLandscape } from "@/hooks/use-mobile"
+import { useAudioDiagnostics } from "@/hooks/use-audio-diagnostics"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
@@ -171,7 +174,31 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     autoGainControl: settings.studentAutoGainControl,
   }
 
+  // Mic input volume — owned here (survives VideoPanel remounts), persisted per device
+  const [micGain, setMicGainState] = useState(1)
+  useEffect(() => {
+    const stored = parseFloat(localStorage.getItem("mic-input-gain") || "1")
+    if (!isNaN(stored)) setMicGainState(Math.min(2, Math.max(0, stored)))
+  }, [])
+  const handleMicGainChange = (gain: number) => {
+    setMicGainState(gain)
+    try {
+      localStorage.setItem("mic-input-gain", String(gain))
+    } catch {
+      // Private browsing — gain still applies for this session.
+    }
+  }
+
+  // Everyone broadcasts what their mic pipeline actually applied; the teacher's
+  // Student Audio popover renders the student reports as live diagnostics.
+  const remoteAudioDiagnostics = useAudioDiagnostics(
+    isStudent ? "student" : "teacher",
+    effectiveAudioSettings,
+    micGain
+  )
+
   const isMobile = useIsMobile()
+  const isShortLandscape = useIsShortLandscape()
   const lessonShellRef = useRef<HTMLDivElement>(null)
   const [showSheetMusic, setShowSheetMusic] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -371,6 +398,30 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     }
   }
 
+  // ---- Student invite link (teacher only) ----
+  const [inviteCopied, setInviteCopied] = useState(false)
+  const copyInviteLink = async () => {
+    const roomName = room?.name || `lesson-${studentId || "guest"}`
+    const params = new URLSearchParams({
+      view: "lesson",
+      room: roomName,
+      studentId: studentId || "guest",
+      role: "student",
+    })
+    // Group rooms leave `name` unset so each student gets a unique identity;
+    // 1:1 links keep the student id as the identity like the dashboard does.
+    if (!roomName.startsWith("group-") && studentId) params.set("name", studentId)
+    const link = `${window.location.origin}/?${params.toString()}`
+    try {
+      await navigator.clipboard.writeText(link)
+    } catch {
+      // Clipboard API unavailable (e.g. http) — show the link so it can be copied manually.
+      window.prompt("Copy this invite link:", link)
+    }
+    setInviteCopied(true)
+    setTimeout(() => setInviteCopied(false), 2000)
+  }
+
   // Controls are disabled when student is being controlled by teacher
   const controlsDisabled = isControlled
 
@@ -473,6 +524,32 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                     className="scale-75"
                   />
                 </div>
+              </>
+            )}
+
+            {/* Copy Invite Link - Teacher Only */}
+            {!isStudent && (
+              <>
+                <div className="w-px h-5 bg-border mx-2" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={copyInviteLink}
+                  title="Copy the student invite link for this classroom"
+                >
+                  {inviteCopied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Link2 className="w-3.5 h-3.5" />
+                      Invite
+                    </>
+                  )}
+                </Button>
               </>
             )}
 
@@ -620,6 +697,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       isRecording={isRecording}
                       recordingStatus={recordingStatus}
                       onToggleRecording={toggleRecording}
+                      micGain={micGain}
+                      onMicGainChange={handleMicGainChange}
+                      remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
                 </div>
@@ -671,6 +751,12 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       onStudentAudioSettingsChange={!isStudent ? handleStudentAudioSettingsChange : undefined}
                       controlsPosition="right"
                       hasLeftLesson={hasLeftLesson}
+                      isRecording={isRecording}
+                      recordingStatus={recordingStatus}
+                      onToggleRecording={toggleRecording}
+                      micGain={micGain}
+                      onMicGainChange={handleMicGainChange}
+                      remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
                 </div>
@@ -697,6 +783,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       isRecording={isRecording}
                       recordingStatus={recordingStatus}
                       onToggleRecording={toggleRecording}
+                      micGain={micGain}
+                      onMicGainChange={handleMicGainChange}
+                      remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
                 </div>
@@ -736,6 +825,10 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                   recordingStatus={recordingStatus}
                   onToggleRecording={toggleRecording}
                   layout={settings.dualLayout}
+                  controlsPosition={isShortLandscape ? "right" : "bottom"}
+                  micGain={micGain}
+                  onMicGainChange={handleMicGainChange}
+                  remoteAudioDiagnostics={remoteAudioDiagnostics}
                 />
 
               </div>
@@ -758,31 +851,54 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
               </div>
             )}
 
-            {/* LAYER C: The Toggle Button (Floating) */}
-            <div className="absolute bottom-20 right-[max(1rem,env(safe-area-inset-right))] z-50">
-              <Button
-                onClick={() => setShowSheetMusic(!showSheetMusic)}
-                size="lg"
-                className="rounded-full shadow-xl font-bold gap-2"
-              >
-                {showSheetMusic ? (
-                  <>
-                    <Video className="w-5 h-5" /> Show Video
-                  </>
-                ) : (
-                  <>
-                    <Music className="w-5 h-5" /> Show Sheets
-                  </>
-                )}
-              </Button>
-            </div>
+            {/* LAYER C: Sheet music toggle (portrait: floating pill bottom-right,
+                clear of the control bar + iOS home indicator) */}
+            {!isShortLandscape && (
+              <div className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-50">
+                <Button
+                  onClick={() => setShowSheetMusic(!showSheetMusic)}
+                  size="lg"
+                  className="h-12 rounded-full shadow-xl font-bold gap-2"
+                >
+                  {showSheetMusic ? (
+                    <>
+                      <Video className="w-5 h-5" /> Show Video
+                    </>
+                  ) : (
+                    <>
+                      <Music className="w-5 h-5" /> Show Sheets
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
 
-            {/* LAYER C2: Left-side floating controls (fullscreen toggle + teacher End Call) */}
-            <div className="absolute bottom-20 left-[max(1rem,env(safe-area-inset-left))] z-50 flex flex-col gap-2">
+            {/* LAYER C2: Floating controls. Portrait: bottom-left column above the
+                control bar. Landscape: vertically-centered rail on the left edge so
+                every button stays reachable and clear of the right-side control bar. */}
+            <div
+              className={`absolute z-50 flex flex-col gap-2 ${isShortLandscape
+                ? "left-[max(0.75rem,env(safe-area-inset-left))] top-1/2 -translate-y-1/2"
+                : "bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))]"
+                }`}
+            >
+              {/* Sheet music toggle joins the rail in landscape */}
+              {isShortLandscape && (
+                <Button
+                  size="icon"
+                  className="h-11 w-11 rounded-full shadow-xl"
+                  onClick={() => setShowSheetMusic(!showSheetMusic)}
+                  title={showSheetMusic ? "Show Video" : "Show Sheets"}
+                  aria-label={showSheetMusic ? "Show Video" : "Show Sheets"}
+                >
+                  {showSheetMusic ? <Video className="w-5 h-5" /> : <Music className="w-5 h-5" />}
+                </Button>
+              )}
+
               <Button
                 variant="secondary"
                 size="icon"
-                className="rounded-full shadow-xl"
+                className="h-11 w-11 rounded-full shadow-xl"
                 onClick={toggleFullscreen}
                 title={isFullscreen ? "Exit Full Screen" : "Full Screen"}
                 aria-label={isFullscreen ? "Exit Full Screen" : "Full Screen"}
@@ -795,7 +911,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                 <Button
                   variant="secondary"
                   size="icon"
-                  className="rounded-full shadow-xl"
+                  className="h-11 w-11 rounded-full shadow-xl"
                   onClick={() => setRoomSettings({ dualLayout: settings.dualLayout === "vertical" ? "horizontal" : "vertical" })}
                   title={settings.dualLayout === "vertical" ? "Side by Side" : "Top / Bottom"}
                   aria-label={settings.dualLayout === "vertical" ? "Side by Side" : "Top / Bottom"}
@@ -804,12 +920,26 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                 </Button>
               )}
 
+              {/* Copy invite link — Teacher only */}
+              {!isStudent && (
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-11 w-11 rounded-full shadow-xl"
+                  onClick={copyInviteLink}
+                  title="Copy student invite link"
+                  aria-label="Copy student invite link"
+                >
+                  {inviteCopied ? <Check className="w-5 h-5 text-emerald-500" /> : <Link2 className="w-5 h-5" />}
+                </Button>
+              )}
+
               {/* End Call / Rejoin — Teacher only */}
               {!isStudent && (
                 hasLeftLesson ? (
                   <Button
                     size="icon"
-                    className="rounded-full shadow-xl bg-emerald-600 hover:bg-emerald-700 text-white"
+                    className="h-11 w-11 rounded-full shadow-xl bg-emerald-600 hover:bg-emerald-700 text-white"
                     onClick={onRejoinLesson}
                     title="Rejoin Lesson"
                     aria-label="Rejoin Lesson"
@@ -820,7 +950,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                   <Button
                     variant="destructive"
                     size="icon"
-                    className="rounded-full shadow-xl"
+                    className="h-11 w-11 rounded-full shadow-xl"
                     onClick={onLeaveLesson}
                     title="End Call"
                     aria-label="End Call"

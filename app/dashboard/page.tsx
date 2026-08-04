@@ -111,6 +111,25 @@ export default function Dashboard() {
         router.push(url)
     }
 
+    // Group mode: one shared room that any number of students can join with the
+    // same invite link. Students get auto-generated guest identities so the link
+    // can be reused by everyone.
+    const [groupName, setGroupName] = useState("studio-group")
+    const groupSlug = groupName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "studio-group"
+
+    const launchGroupLesson = () => {
+        const secret = localStorage.getItem("teacher_key") || "super_secret_piano_master_key_2025"
+        const roomName = `group-${groupSlug}`
+        router.push(`/?view=lesson&room=${roomName}&studentId=${roomName}&name=Teacher&key=${secret}&role=teacher`)
+    }
+
+    const copyGroupLink = () => {
+        const roomName = `group-${groupSlug}`
+        const link = `${window.location.origin}/?view=lesson&room=${roomName}&studentId=${roomName}&role=student`
+        navigator.clipboard.writeText(link)
+        alert(`✅ Copied group invite link!\n\nEveryone who opens it joins the same room.`)
+    }
+
     // 4. Copy Link
     const copyStudentLink = (studentId: string) => {
         const roomName = `lesson-${studentId}`
@@ -258,6 +277,48 @@ export default function Dashboard() {
                                 </DialogFooter>
                             </DialogContent>
                         </Dialog>
+                    </div>
+
+                    {/* Group Class Room */}
+                    <div className="space-y-4">
+                        <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                            Group Class
+                        </h2>
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                            <div className="flex items-center gap-3 flex-1">
+                                <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                                    <Users className="w-5 h-5 text-indigo-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <Input
+                                        value={groupName}
+                                        onChange={(e) => setGroupName(e.target.value)}
+                                        className="bg-zinc-800 border-zinc-700 text-white h-9"
+                                        placeholder="Group room name"
+                                    />
+                                    <p className="text-[11px] text-zinc-500 mt-1 truncate">
+                                        Room: group-{groupSlug} — one link, any number of students
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={copyGroupLink}
+                                    className="border-zinc-700 bg-zinc-900/50 text-zinc-400 hover:text-white hover:bg-zinc-800 text-xs h-9"
+                                >
+                                    <Copy className="w-3.5 h-3.5 mr-2" /> Copy Group Link
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={launchGroupLesson}
+                                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs h-9 px-4"
+                                >
+                                    <Video className="w-3.5 h-3.5 mr-2" /> Enter Group Room
+                                </Button>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Student List */}

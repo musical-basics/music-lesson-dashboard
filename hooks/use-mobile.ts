@@ -6,18 +6,28 @@ const MOBILE_BREAKPOINT = 768
 // serves it the desktop layout. Short touchscreens are still phones.
 const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px), (max-height: 500px) and (pointer: coarse)`
 
-export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = React.useState<boolean | undefined>(undefined)
 
   React.useEffect(() => {
-    const mql = window.matchMedia(MOBILE_QUERY)
+    const mql = window.matchMedia(query)
     const onChange = () => {
-      setIsMobile(mql.matches)
+      setMatches(mql.matches)
     }
     mql.addEventListener('change', onChange)
-    setIsMobile(mql.matches)
+    setMatches(mql.matches)
     return () => mql.removeEventListener('change', onChange)
-  }, [])
+  }, [query])
 
-  return !!isMobile
+  return !!matches
+}
+
+export function useIsMobile() {
+  return useMediaQuery(MOBILE_QUERY)
+}
+
+// A phone held sideways: touch device with very little vertical room. Lesson
+// controls move to a side rail so they don't eat the video's height.
+export function useIsShortLandscape() {
+  return useMediaQuery('(max-height: 500px) and (pointer: coarse) and (orientation: landscape)')
 }

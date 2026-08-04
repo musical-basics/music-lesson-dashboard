@@ -15,16 +15,22 @@ import {
     ShieldOff,
     Gauge,
     UserCog,
+    CheckCircle2,
+    XCircle,
+    HelpCircle,
 } from "lucide-react"
 import {
     Popover,
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { MediaDeviceSettings } from "@/components/device-selector"
-import { useLocalParticipant, useRoomContext, useTracks, ParticipantTile } from "@livekit/components-react"
-import { RoomEvent, Track, type Participant } from "livekit-client"
+import { MediaSettingsPanel } from "@/components/device-selector"
+import { useLocalParticipant, useRoomContext, useTracks, ParticipantTile, type TrackReferenceOrPlaceholder } from "@livekit/components-react"
+import { RoomEvent, Track, type LocalAudioTrack } from "livekit-client"
 import { applyAudioTrackHint, getMusicAudioCaptureOptions } from "@/lib/music-audio"
+import { applyMicGain } from "@/lib/mic-gain-processor"
+import { useIsMobile } from "@/hooks/use-mobile"
+import type { AudioDiagnosticsReport } from "@/hooks/use-audio-diagnostics"
 
 import { Label } from "@/components/ui/label"
 
@@ -62,11 +68,21 @@ export interface VideoPanelProps {
     isRecording?: boolean
     recordingStatus?: string
     onToggleRecording?: () => void
+    // Mic input volume (1 = 100%), owned by LessonInterface so it survives remounts
+    micGain?: number
+    onMicGainChange?: (gain: number) => void
+    // Live per-participant mic reports collected by useAudioDiagnostics
+    remoteAudioDiagnostics?: Record<string, AudioDiagnosticsReport & { receivedAt: number }>
 }
 
 // ============================================================================
 // VerticalVideoStack - Renders LiveKit video tracks
 // ============================================================================
+
+function trackKey(track: TrackReferenceOrPlaceholder) {
+    const sid = "publication" in track ? track.publication?.trackSid : undefined
+    return `${track.participant.identity}:${track.source}:${sid ?? "placeholder"}`
+}
 
 function VerticalVideoStack({ aspectRatio = "standard", layout = "vertical" }: { aspectRatio?: VideoAspectRatio; layout?: "vertical" | "horizontal" }) {
     const tracks = useTracks(
@@ -78,6 +94,24 @@ function VerticalVideoStack({ aspectRatio = "standard", layout = "vertical" }: {
     )
 
     const isHorizontal = layout === "horizontal"
+
+    // Group mode: with 3+ tiles the stacked layout runs out of room, so tile
+    // participants into an even grid instead.
+    if (tracks.length > 2) {
+        const cols = tracks.length <= 4 ? 2 : Math.ceil(Math.sqrt(tracks.length))
+        return (
+            <div
+                className="grid h-full w-full bg-black rounded-lg overflow-hidden gap-0.5"
+                style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}
+            >
+                {tracks.map((track) => (
+                    <div key={trackKey(track)} className="relative overflow-hidden min-h-0 min-w-0 video-aspect-cover">
+                        <ParticipantTile trackRef={track} className="w-full h-full" />
+                    </div>
+                ))}
+            </div>
+        )
+    }
 
     const getContainerStyle = (): React.CSSProperties => {
         if (isHorizontal) {
@@ -122,7 +156,7 @@ function VerticalVideoStack({ aspectRatio = "standard", layout = "vertical" }: {
         <div className={`flex ${isHorizontal ? 'flex-row' : 'flex-col'} h-full w-full bg-black rounded-lg overflow-hidden`}>
             {tracks.map((track) => (
                 <div
-                    key={track.participant.identity}
+                    key={trackKey(track)}
                     className={trackClass}
                     style={getContainerStyle()}
                 >
@@ -137,6 +171,115 @@ function VerticalVideoStack({ aspectRatio = "standard", layout = "vertical" }: {
                     Waiting for video...
                 </div>
             )}
+        </div>
+    )
+}
+
+// ============================================================================
+// Student diagnostics (teacher view)
+// ============================================================================
+
+function MatchRow({
+    label,
+    requested,
+    applied,
+}: {
+    label: string
+    requested: boolean
+    applied: boolean | undefined
+}) {
+    const matches = applied === undefined ? undefined : applied === requested
+    return (
+        <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">{label}</span>
+            <span className="flex items-center gap-1.5">
+                <span>{requested ? "On" : "Off"}</span>
+                <span className="text-muted-foreground">→</span>
+                <span>{applied === undefined ? "?" : applied ? "On" : "Off"}</span>
+                {matches === undefined ? (
+                    <HelpCircle className="w-3.5 h-3.5 text-muted-foreground" />
+                ) : matches ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                ) : (
+                    <XCircle className="w-3.5 h-3.5 text-red-500" />
+                )}
+            </span>
+        </div>
+    )
+}
+
+function StudentDiagnostics({
+    reports,
+    requested,
+    active,
+}: {
+    reports: Record<string, AudioDiagnosticsReport & { receivedAt: number }>
+    requested: AudioProcessingSettings
+    active: boolean
+}) {
+    const room = useRoomContext()
+    const [levels, setLevels] = useState<Record<string, number>>({})
+    const [, forceTick] = useState(0)
+
+    // Poll live mic levels + staleness while the popover is open
+    useEffect(() => {
+        if (!active) return
+        const t = setInterval(() => {
+            const next: Record<string, number> = {}
+            room.remoteParticipants.forEach((p) => {
+                next[p.identity] = p.audioLevel
+            })
+            setLevels(next)
+            forceTick((v) => v + 1)
+        }, 250)
+        return () => clearInterval(t)
+    }, [active, room])
+
+    const studentReports = Object.values(reports).filter((r) => r.role === "student")
+
+    if (studentReports.length === 0) {
+        return (
+            <p className="text-xs text-muted-foreground">
+                No diagnostics received from the student yet. They appear a few seconds
+                after the student joins.
+            </p>
+        )
+    }
+
+    return (
+        <div className="grid gap-3">
+            {studentReports.map((report) => {
+                const level = Math.min(1, (levels[report.identity] ?? 0) * 3)
+                const ageSec = Math.round((Date.now() - report.receivedAt) / 1000)
+                const stale = ageSec > 25
+                return (
+                    <div key={report.identity} className="rounded-md border border-border p-2 grid gap-1.5">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium truncate max-w-[130px]" title={report.identity}>
+                                {report.identity}
+                            </span>
+                            <span className={`text-[10px] ${stale ? "text-red-500" : "text-muted-foreground"}`}>
+                                {stale ? `stale (${ageSec}s)` : `live · ${ageSec}s ago`}
+                            </span>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground truncate" title={report.deviceLabel}>
+                            {report.micEnabled ? "🎤 " : "🔇 muted · "}
+                            {report.deviceLabel}
+                            {report.micGain !== undefined && report.micGain !== 1 && ` · vol ${Math.round(report.micGain * 100)}%`}
+                        </div>
+                        {/* Live input level */}
+                        <div className="h-1.5 rounded bg-secondary overflow-hidden">
+                            <div
+                                className="h-full bg-emerald-500 transition-[width] duration-150"
+                                style={{ width: `${Math.round(level * 100)}%` }}
+                            />
+                        </div>
+                        <MatchRow label="Echo Cancel" requested={requested.echoCancellation} applied={report.applied.echoCancellation} />
+                        <MatchRow label="Noise Suppr" requested={requested.noiseSuppression} applied={report.applied.noiseSuppression} />
+                        <MatchRow label="Auto Gain" requested={requested.autoGainControl} applied={report.applied.autoGainControl} />
+                    </div>
+                )
+            })}
         </div>
     )
 }
@@ -163,9 +306,13 @@ export function VideoPanel({
     isRecording: isRecordingProp,
     recordingStatus,
     onToggleRecording,
+    micGain = 1,
+    onMicGainChange,
+    remoteAudioDiagnostics = {},
 }: VideoPanelProps) {
     // LiveKit local participant for camera/mic control
     const { localParticipant } = useLocalParticipant()
+    const isMobile = useIsMobile()
 
     // State — derive camera/mic from LiveKit's actual track state
     const isCameraEnabled = localParticipant?.isCameraEnabled ?? false
@@ -174,43 +321,15 @@ export function VideoPanel({
     const isMuted = !isMicEnabled
     const [isRecording, setIsRecording] = useState(false)
     const [uploadStatus, setUploadStatus] = useState("")
+    const [studentDiagOpen, setStudentDiagOpen] = useState(false)
 
-    // Refs for recording
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-    const streamRef = useRef<MediaStream | null>(null) // Reused across segments
-    const chunksRef = useRef<Blob[]>([]) // Buffer of chunks not yet uploaded (current segment)
-    const totalSizeRef = useRef(0)
-
-    // Multipart upload state refs (per-segment)
-    const uploadIdRef = useRef<string | null>(null)
-    const uploadKeyRef = useRef<string | null>(null)
-    const uploadedPartsRef = useRef<{ PartNumber: number; ETag: string }[]>([])
-    const partCounterRef = useRef(0)
-    const isFlushingRef = useRef(false)
-
-    // Segment rotation
-    const segmentNumberRef = useRef(0)
-    const rotationTimerRef = useRef<NodeJS.Timeout | null>(null)
-    const isRotatingRef = useRef(false) // true = auto-rotation, false = manual stop
-
-    // Server-side recording (LiveKit Egress). The room is recorded on LiveKit's
-    // servers straight to R2, independent of this browser tab — so backgrounding,
-    // minimizing, or Chrome freezing the tab can no longer break a recording.
+    // Server-side recording fallback (used only when the parent doesn't own
+    // recording state — all LessonInterface call sites pass controlled props).
     const egressIdRef = useRef<string | null>(null)
     const egressKeyRef = useRef<string | null>(null)
 
-    // Canvas-based recording (replaces getDisplayMedia — avoids Chrome "being recorded" overlay)
-    const canvasRafRef = useRef<number | null>(null)
-    const recordingVideoElemsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
-
-    // Recording audio graph refs. We mix LiveKit room audio into one track for MediaRecorder.
-    const audioCtxRef = useRef<AudioContext | null>(null)
-    const audioDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null)
-    const audioSourceNodesRef = useRef<MediaStreamAudioSourceNode[]>([])
     const lastAppliedAudioSettingsRef = useRef<string | null>(null)
     const micOptionsRef = useRef(getMusicAudioCaptureOptions(undefined, audioSettings))
-    const SEGMENT_DURATION_MS = 10 * 60 * 1000 // 10 minutes
-    const FLUSH_THRESHOLD = 10 * 1024 * 1024 // 10MB - uploads go directly to R2 via presigned URLs (no Vercel limit)
 
     const userId = "teacher-1" // TODO: Get from auth context
     const room = useRoomContext()
@@ -229,53 +348,97 @@ export function VideoPanel({
         micOptionsRef.current = getMicOptions()
     }, [getMicOptions])
 
+    // Re-run the audio-settings effects whenever the mic track (re)publishes —
+    // it usually appears a moment after connect, after this component mounts.
+    const [trackEpoch, setTrackEpoch] = useState(0)
+    useEffect(() => {
+        if (!room) return
+        const bump = () => setTrackEpoch((e) => e + 1)
+        room
+            .on(RoomEvent.LocalTrackPublished, bump)
+            .on(RoomEvent.LocalTrackUnpublished, bump)
+        return () => {
+            room
+                .off(RoomEvent.LocalTrackPublished, bump)
+                .off(RoomEvent.LocalTrackUnpublished, bump)
+        }
+    }, [room])
+
     // Auto-enable camera on mount. LiveKitRoom publishes the mic with music-safe options.
     useEffect(() => {
-        if (localParticipant) {
+        if (localParticipant && !(hasLeftLesson && !isStudent)) {
             localParticipant.setCameraEnabled(true)
             applyLocalMusicHints()
         }
-    }, [applyLocalMusicHints, localParticipant])
+    }, [applyLocalMusicHints, localParticipant, hasLeftLesson, isStudent])
 
-    // Apply audio processing settings when they change
+    const getLocalMicTrack = useCallback((): LocalAudioTrack | undefined => {
+        return localParticipant?.getTrackPublication(Track.Source.Microphone)?.audioTrack as LocalAudioTrack | undefined
+    }, [localParticipant])
+
+    // Apply audio processing settings when they change.
+    //
+    // This must use restartTrack: setMicrophoneEnabled(false → true) does NOT
+    // re-run getUserMedia, because stopMicTrackOnMute=false keeps the captured
+    // track alive across the mute — the re-enable reused the old track and the
+    // new constraints were silently ignored (the "echo cancellation toggle does
+    // nothing" bug). restartTrack replaces the capture with the new constraints
+    // on the live publication.
     useEffect(() => {
         if (!localParticipant) return
 
         const applyAudioSettings = async () => {
             const micOptions = getMicOptions()
             const settingsKey = JSON.stringify(micOptions)
+            const micTrack = getLocalMicTrack()
 
-            if (lastAppliedAudioSettingsRef.current === null) {
+            if (!micTrack) {
+                // Nothing published yet; options apply on first enable (LiveKitRoom
+                // audio prop / toggleMic pass them), and trackEpoch re-runs us.
                 lastAppliedAudioSettingsRef.current = settingsKey
-                applyLocalMusicHints()
                 return
             }
 
-            if (lastAppliedAudioSettingsRef.current === settingsKey) {
+            const actual = micTrack.mediaStreamTrack.getSettings()
+            const matches =
+                (actual.echoCancellation === undefined || actual.echoCancellation === !!micOptions.echoCancellation) &&
+                (actual.noiseSuppression === undefined || actual.noiseSuppression === !!micOptions.noiseSuppression) &&
+                (actual.autoGainControl === undefined || actual.autoGainControl === !!micOptions.autoGainControl)
+
+            if (lastAppliedAudioSettingsRef.current === settingsKey && matches) {
                 applyLocalMusicHints()
                 return
             }
-
             lastAppliedAudioSettingsRef.current = settingsKey
 
-            try {
-                if (!localParticipant.isMicrophoneEnabled) {
-                    applyLocalMusicHints()
-                    console.log(`[Audio] Settings will apply next time the microphone is enabled:`, micOptions)
-                    return
-                }
-
-                await localParticipant.setMicrophoneEnabled(false)
-                await localParticipant.setMicrophoneEnabled(true, micOptions)
+            if (matches) {
                 applyLocalMusicHints()
-                console.log(`[Audio] Settings applied:`, micOptions)
+                return
+            }
+
+            try {
+                await micTrack.restartTrack(micOptions)
+                applyLocalMusicHints()
+                console.log(
+                    "[Audio] Settings applied:", micOptions,
+                    "→ browser reports:", micTrack.mediaStreamTrack.getSettings()
+                )
             } catch (e) {
                 console.error("Failed to apply audio settings:", e)
             }
         }
 
         applyAudioSettings()
-    }, [applyLocalMusicHints, getMicOptions, localParticipant])
+    }, [applyLocalMusicHints, getMicOptions, getLocalMicTrack, localParticipant, trackEpoch])
+
+    // Apply mic input volume (WebAudio gain processor on the published track)
+    useEffect(() => {
+        const micTrack = getLocalMicTrack()
+        if (!micTrack) return
+        applyMicGain(micTrack, micGain).catch((e) =>
+            console.error("[Audio] Failed to apply mic gain:", e)
+        )
+    }, [getLocalMicTrack, micGain, trackEpoch])
 
     // Mute/unmute camera & mic when teacher leaves/rejoins the lesson
     // This makes the teacher invisible to the student without disconnecting from LiveKit
@@ -313,500 +476,7 @@ export function VideoPanel({
         }
     }
 
-    const collectParticipantAudioTracks = useCallback((participant: Participant) => {
-        const tracks: { id: string; track: MediaStreamTrack }[] = []
-
-        participant.audioTrackPublications.forEach((publication) => {
-            const mediaTrack = publication.audioTrack?.mediaStreamTrack
-
-            if (!mediaTrack || publication.isMuted || mediaTrack.readyState !== "live") {
-                return
-            }
-
-            tracks.push({
-                id: `${participant.identity}:${publication.source}:${publication.trackSid || mediaTrack.id}`,
-                track: mediaTrack,
-            })
-        })
-
-        return tracks
-    }, [])
-
-    const collectRecordingAudioTracks = useCallback(() => {
-        return [
-            ...collectParticipantAudioTracks(room.localParticipant),
-            ...Array.from(room.remoteParticipants.values()).flatMap(collectParticipantAudioTracks),
-        ]
-    }, [collectParticipantAudioTracks, room])
-
-    const rebuildRecordingAudioMix = useCallback(() => {
-        const audioCtx = audioCtxRef.current
-        const destination = audioDestinationRef.current
-
-        if (!audioCtx || !destination) return
-
-        audioSourceNodesRef.current.forEach((sourceNode) => {
-            try {
-                sourceNode.disconnect()
-            } catch {
-                // Already disconnected.
-            }
-        })
-        audioSourceNodesRef.current = []
-
-        const audioTracks = collectRecordingAudioTracks()
-
-        audioTracks.forEach(({ track }) => {
-            try {
-                const sourceNode = audioCtx.createMediaStreamSource(new MediaStream([track]))
-                sourceNode.connect(destination)
-                audioSourceNodesRef.current.push(sourceNode)
-            } catch (error) {
-                console.warn("[Recording] Could not add audio track to recording mix:", error)
-            }
-        })
-
-        console.log(`[Recording] Audio mix rebuilt with ${audioTracks.length} track(s):`, audioTracks.map(({ id }) => id))
-    }, [collectRecordingAudioTracks])
-
-    useEffect(() => {
-        const refreshRecordingAudio = () => rebuildRecordingAudioMix()
-
-        room
-            .on(RoomEvent.TrackSubscribed, refreshRecordingAudio)
-            .on(RoomEvent.TrackUnsubscribed, refreshRecordingAudio)
-            .on(RoomEvent.TrackMuted, refreshRecordingAudio)
-            .on(RoomEvent.TrackUnmuted, refreshRecordingAudio)
-            .on(RoomEvent.LocalTrackPublished, refreshRecordingAudio)
-            .on(RoomEvent.LocalTrackUnpublished, refreshRecordingAudio)
-            .on(RoomEvent.ParticipantConnected, refreshRecordingAudio)
-            .on(RoomEvent.ParticipantDisconnected, refreshRecordingAudio)
-
-        return () => {
-            room
-                .off(RoomEvent.TrackSubscribed, refreshRecordingAudio)
-                .off(RoomEvent.TrackUnsubscribed, refreshRecordingAudio)
-                .off(RoomEvent.TrackMuted, refreshRecordingAudio)
-                .off(RoomEvent.TrackUnmuted, refreshRecordingAudio)
-                .off(RoomEvent.LocalTrackPublished, refreshRecordingAudio)
-                .off(RoomEvent.LocalTrackUnpublished, refreshRecordingAudio)
-                .off(RoomEvent.ParticipantConnected, refreshRecordingAudio)
-                .off(RoomEvent.ParticipantDisconnected, refreshRecordingAudio)
-        }
-    }, [rebuildRecordingAudioMix, room])
-
-    const cleanupRecordingAudioMix = () => {
-        audioSourceNodesRef.current.forEach((sourceNode) => {
-            try {
-                sourceNode.disconnect()
-            } catch {
-                // Already disconnected.
-            }
-        })
-        audioSourceNodesRef.current = []
-
-        audioDestinationRef.current?.stream.getTracks().forEach((track) => track.stop())
-        audioDestinationRef.current = null
-
-        if (audioCtxRef.current) {
-            audioCtxRef.current.close()
-            audioCtxRef.current = null
-        }
-    }
-
-    // Returns a MediaStreamTrack for a LiveKit video publication, backed by a hidden <video> element.
-    // We keep one <video> per track ID so the canvas draw loop can call drawImage on them.
-    const getOrCreateRecordingVideoElem = (track: MediaStreamTrack): HTMLVideoElement => {
-        const existing = recordingVideoElemsRef.current.get(track.id)
-        if (existing) return existing
-        const video = document.createElement('video')
-        video.autoplay = true
-        video.muted = true
-        video.playsInline = true
-        video.srcObject = new MediaStream([track])
-        video.play().catch(() => {})
-        recordingVideoElemsRef.current.set(track.id, video)
-        return video
-    }
-
-    // Collect live video tracks from all LiveKit participants (local first, then remote).
-    const getLiveKitVideoTracks = (): MediaStreamTrack[] => {
-        const tracks: MediaStreamTrack[] = []
-        room.localParticipant.videoTrackPublications.forEach(pub => {
-            const t = pub.videoTrack?.mediaStreamTrack
-            if (t && t.readyState === 'live' && !pub.isMuted) tracks.push(t)
-        })
-        room.remoteParticipants.forEach(participant => {
-            participant.videoTrackPublications.forEach(pub => {
-                const t = pub.videoTrack?.mediaStreamTrack
-                if (t && t.readyState === 'live' && !pub.isMuted) tracks.push(t)
-            })
-        })
-        return tracks
-    }
-
-    // Start canvas compositor: composites LiveKit video tracks into a single canvas stream.
-    // Returns the canvas stream to use as the video source for MediaRecorder.
-    // No getDisplayMedia is used, so Chrome never shows its "tab is being recorded" overlay.
-    const startCanvasCompositor = (): MediaStream => {
-        const CANVAS_W = 1920
-        const CANVAS_H = 1080
-        const canvas = document.createElement('canvas')
-        canvas.width = CANVAS_W
-        canvas.height = CANVAS_H
-        const ctx = canvas.getContext('2d', { alpha: false })!
-
-        const draw = () => {
-            ctx.fillStyle = '#000000'
-            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
-
-            const tracks = getLiveKitVideoTracks()
-
-            if (tracks.length === 1) {
-                const video = getOrCreateRecordingVideoElem(tracks[0])
-                ctx.drawImage(video, 0, 0, CANVAS_W, CANVAS_H)
-            } else if (tracks.length >= 2) {
-                // Stack two videos side by side
-                const w = CANVAS_W / 2
-                tracks.slice(0, 2).forEach((track, i) => {
-                    const video = getOrCreateRecordingVideoElem(track)
-                    ctx.drawImage(video, i * w, 0, w, CANVAS_H)
-                })
-            }
-
-            // Prune stale video elements whose tracks are no longer live
-            const activeIds = new Set(tracks.map(t => t.id))
-            recordingVideoElemsRef.current.forEach((video, id) => {
-                if (!activeIds.has(id)) {
-                    video.srcObject = null
-                    recordingVideoElemsRef.current.delete(id)
-                }
-            })
-
-            canvasRafRef.current = requestAnimationFrame(draw)
-        }
-
-        draw()
-        return canvas.captureStream(30)
-    }
-
-    const stopCanvasCompositor = () => {
-        if (canvasRafRef.current) {
-            cancelAnimationFrame(canvasRafRef.current)
-            canvasRafRef.current = null
-        }
-        recordingVideoElemsRef.current.forEach(video => { video.srcObject = null })
-        recordingVideoElemsRef.current.clear()
-    }
-
-    const createRecordingStream = async (canvasVideoStream: MediaStream) => {
-        const audioCtx = new AudioContext()
-        const destination = audioCtx.createMediaStreamDestination()
-
-        audioCtxRef.current = audioCtx
-        audioDestinationRef.current = destination
-
-        if (audioCtx.state === "suspended") {
-            await audioCtx.resume()
-        }
-
-        rebuildRecordingAudioMix()
-
-        return new MediaStream([
-            ...canvasVideoStream.getVideoTracks(),
-            ...destination.stream.getAudioTracks(),
-        ])
-    }
-
-    const getRecordingMimeType = () => {
-        const candidates = [
-            "video/webm;codecs=vp9,opus",
-            "video/webm;codecs=vp8,opus",
-            "video/webm;codecs=h264,opus",
-            "video/webm",
-        ]
-
-        return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate))
-    }
-
-    // --- PROGRESSIVE RECORDING LOGIC (R2 Multipart Upload via Presigned URLs) ---
-
-    // Flush buffer: take up to FLUSH_THRESHOLD bytes of chunks and upload directly to R2
-    const flushBuffer = async () => {
-        if (isFlushingRef.current) return
-        if (chunksRef.current.length === 0) return
-        if (!uploadIdRef.current || !uploadKeyRef.current) return
-
-        isFlushingRef.current = true
-
-        // Collect only up to FLUSH_THRESHOLD worth of chunks
-        const chunksToUpload: Blob[] = []
-        let batchSize = 0
-        while (chunksRef.current.length > 0 && batchSize < FLUSH_THRESHOLD) {
-            const next = chunksRef.current[0]
-            chunksToUpload.push(next)
-            batchSize += next.size
-            chunksRef.current.shift()
-        }
-
-        if (chunksToUpload.length === 0) {
-            isFlushingRef.current = false
-            return
-        }
-
-        try {
-            const blob = new Blob(chunksToUpload, { type: 'video/webm' })
-            partCounterRef.current += 1
-            const partNumber = partCounterRef.current
-
-            console.log(`[Recording] Flushing part ${partNumber} (${(blob.size / 1024 / 1024).toFixed(2)} MB)`)
-
-            // Get presigned URL from our API (tiny JSON request)
-            const presignResp = await fetch('/api/recording/presign-part', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    uploadId: uploadIdRef.current,
-                    key: uploadKeyRef.current,
-                    partNumber,
-                }),
-            })
-
-            if (!presignResp.ok) throw new Error(`Failed to get presigned URL for part ${partNumber}`)
-            const { presignedUrl } = await presignResp.json()
-
-            // PUT directly to R2 (bypasses Vercel, no size limit)
-            const uploadResp = await fetch(presignedUrl, {
-                method: 'PUT',
-                body: blob,
-            })
-
-            if (!uploadResp.ok) throw new Error(`Part upload failed: ${uploadResp.status}`)
-
-            // No need to track ETags client-side — server will fetch them via ListParts at finalization
-            uploadedPartsRef.current.push({ PartNumber: partNumber, ETag: '' })
-            totalSizeRef.current += blob.size
-
-            console.log(`[Recording] Part ${partNumber} uploaded successfully`)
-        } catch (e) {
-            console.error("[Recording] Buffer flush failed:", e)
-            // Put chunks back at the front for retry
-            chunksRef.current = [...chunksToUpload, ...chunksRef.current]
-        } finally {
-            isFlushingRef.current = false
-        }
-    }
-
-    // Drain the entire buffer by serially flushing 4MB batches
-    const drainBuffer = async () => {
-        while (chunksRef.current.length > 0) {
-            // Wait for any in-flight flush to finish
-            while (isFlushingRef.current) {
-                await new Promise(r => setTimeout(r, 50))
-            }
-            await flushBuffer()
-        }
-    }
-
-    // Get the current buffer size
-    const getBufferSize = () => {
-        return chunksRef.current.reduce((total, chunk) => total + chunk.size, 0)
-    }
-
-    // Pending flush flag to avoid stacking fire-and-forget calls
-    const flushQueuedRef = useRef(false)
-
-    // Schedule a flush (fire-and-forget safe: only one pending at a time)
-    const scheduleFlush = () => {
-        if (flushQueuedRef.current || isFlushingRef.current) return
-        flushQueuedRef.current = true
-            ; (async () => {
-                try {
-                    while (getBufferSize() >= FLUSH_THRESHOLD) {
-                        // Wait for any in-flight flush
-                        while (isFlushingRef.current) {
-                            await new Promise(r => setTimeout(r, 50))
-                        }
-                        await flushBuffer()
-                    }
-                } finally {
-                    flushQueuedRef.current = false
-                }
-            })()
-    }
-
-    // --- Process a completed segment (finalize upload and queue server-side MP4 conversion) ---
-    const processSegment = async (snapshot: {
-        uploadId: string
-        uploadKey: string
-        chunks: Blob[]
-        totalSize: number
-        segmentNum: number
-        isFinal: boolean
-    }) => {
-        const { uploadId, uploadKey, segmentNum, isFinal } = snapshot
-        const segmentLabel = `Seg ${segmentNum}`
-
-        console.log(`[Recording] ${segmentLabel}: Finalizing WebM upload`)
-
-        setUploadStatus(`${segmentLabel}: Finalizing...`)
-        try {
-            if (snapshot.chunks.length > 0) {
-                const finalBlob = new Blob(snapshot.chunks, { type: 'video/webm' })
-
-                const formData = new FormData()
-                formData.append('uploadId', uploadId)
-                formData.append('key', uploadKey)
-                formData.append('parts', JSON.stringify([]))
-                formData.append('studentId', studentId || 'guest')
-                formData.append('teacherId', userId)
-                formData.append('totalSize', String(snapshot.totalSize + finalBlob.size))
-                formData.append('finalChunk', finalBlob, 'final.webm')
-
-                const response = await fetch('/api/recording/finalize', {
-                    method: 'POST',
-                    body: formData,
-                })
-                if (response.ok) {
-                    const data = await response.json()
-                    console.log(`[Recording] ${segmentLabel}: WebM finalized to cloud: ${data.url}; MP4 conversion queued server-side`)
-                } else {
-                    console.error(`[Recording] ${segmentLabel}: WebM finalize failed:`, response.statusText)
-                }
-            } else {
-                // No remaining buffer, just finalize
-                const response = await fetch('/api/recording/finalize', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        uploadId,
-                        key: uploadKey,
-                        parts: [],
-                        studentId: studentId || 'guest',
-                        teacherId: userId,
-                        totalSize: snapshot.totalSize,
-                    }),
-                })
-                if (response.ok) {
-                    const data = await response.json()
-                    console.log(`[Recording] ${segmentLabel}: WebM finalized to cloud: ${data.url}; MP4 conversion queued server-side`)
-                } else {
-                    console.error(`[Recording] ${segmentLabel}: WebM finalize failed:`, response.statusText)
-                }
-            }
-        } catch (e) {
-            console.error(`[Recording] ${segmentLabel}: WebM cloud finalize error:`, e)
-        }
-
-        // Clear status and show alert only for the final segment
-        if (isFinal) {
-            setUploadStatus("")
-            setIsRecording(false)
-            const totalSegments = segmentNum
-            alert(`Recording complete!\n${totalSegments} segment${totalSegments > 1 ? 's' : ''} uploaded\nMP4 conversion will finish server-side`)
-        } else {
-            setUploadStatus(`${segmentLabel} uploaded. Recording...`)
-        }
-    }
-
-    // --- Start a new segment on an existing stream ---
-    const startNewSegment = async (stream: MediaStream) => {
-        segmentNumberRef.current += 1
-        const segmentNum = segmentNumberRef.current
-
-        // 1. Start new multipart upload for this segment
-        const filename = `${studentId || 'lesson'}_${Date.now()}_part${segmentNum}.webm`
-        const startResponse = await fetch('/api/recording/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename }),
-        })
-
-        if (!startResponse.ok) throw new Error("Failed to start multipart upload for new segment")
-
-        const { uploadId, key } = await startResponse.json()
-        uploadIdRef.current = uploadId
-        uploadKeyRef.current = key
-        uploadedPartsRef.current = []
-        partCounterRef.current = 0
-        totalSizeRef.current = 0
-        chunksRef.current = []
-        flushQueuedRef.current = false
-        isFlushingRef.current = false
-
-        console.log(`[Recording] Segment ${segmentNum} started: ${key}`)
-
-        // 2. Create new MediaRecorder on the same stream
-        const mimeType = getRecordingMimeType()
-        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-
-        console.log(
-            `[Recording] MediaRecorder started with ${stream.getVideoTracks().length} video track(s), ${stream.getAudioTracks().length} audio track(s), mimeType=${recorder.mimeType || "default"}`
-        )
-
-        recorder.ondataavailable = (e) => {
-            if (e.data.size > 0) {
-                chunksRef.current.push(e.data)
-
-                if (getBufferSize() >= FLUSH_THRESHOLD) {
-                    scheduleFlush()
-                }
-            }
-        }
-
-        recorder.onstop = async () => {
-            const currentSegmentNum = segmentNumberRef.current
-            const rotating = isRotatingRef.current
-            console.log(`[Recording] Segment ${currentSegmentNum} stopped (${rotating ? 'rotating' : 'manual stop'})`)
-
-            // Snapshot current segment state before resetting
-            const snapshot = {
-                uploadId: uploadIdRef.current!,
-                uploadKey: uploadKeyRef.current!,
-                chunks: [...chunksRef.current],
-                totalSize: totalSizeRef.current,
-                segmentNum: currentSegmentNum,
-                isFinal: !rotating,
-            }
-
-            // Clear current refs immediately
-            chunksRef.current = []
-
-            if (rotating) {
-                // Start the next segment IMMEDIATELY (< 5ms gap)
-                try {
-                    await startNewSegment(stream)
-                    console.log(`[Recording] New segment started, processing old segment ${currentSegmentNum} in background`)
-                } catch (e) {
-                    console.error("[Recording] Failed to start new segment:", e)
-                    // If we can't start a new segment, treat this as a manual stop
-                    snapshot.isFinal = true
-                }
-            } else {
-                // Manual stop — tear down canvas compositor and stream
-                stopCanvasCompositor()
-                stream.getTracks().forEach(track => track.stop())
-                cleanupRecordingAudioMix()
-                streamRef.current = null
-            }
-
-            // Process the completed segment (runs in background)
-            await processSegment(snapshot)
-        }
-
-        mediaRecorderRef.current = recorder
-        recorder.start(1000) // Collect data every second
-
-        // Set up rotation timer
-        if (rotationTimerRef.current) clearTimeout(rotationTimerRef.current)
-        rotationTimerRef.current = setTimeout(() => {
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-                console.log(`[Recording] 10-minute rotation triggered`)
-                isRotatingRef.current = true
-                mediaRecorderRef.current.stop() // Triggers onstop → starts next segment
-            }
-        }, SEGMENT_DURATION_MS)
-    }
+    // ---- Recording fallback (server-side LiveKit Egress) ----
 
     const startRecording = async () => {
         if (isRecording || egressIdRef.current) return
@@ -936,6 +606,10 @@ export function VideoPanel({
     const effectiveRecordingStatus = recordingControlled ? (recordingStatus ?? "") : uploadStatus
     const handleRecordToggle = recordingControlled ? onToggleRecording! : handleRecordClick
 
+    // 44px touch targets on mobile (Apple HIG minimum); compact on desktop.
+    const ctrlBtn = isMobile ? "w-11 h-11 p-0" : "w-8 h-8 p-0"
+    const ctrlIcon = isMobile ? "w-5 h-5" : "w-4 h-4"
+
     return (
         <div className={`flex ${controlsPosition === 'right' ? 'flex-row' : 'flex-col'} ${className}`}>
             {/* Video Display */}
@@ -977,7 +651,7 @@ export function VideoPanel({
             <div
                 className={
                     controlsPosition === "right"
-                        ? "flex flex-col items-center justify-start gap-6 p-2 bg-sidebar border-l border-border w-16 overflow-y-auto"
+                        ? "flex flex-col items-center justify-start gap-4 p-2 bg-sidebar border-l border-border w-16 overflow-y-auto pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))]"
                         : "flex items-center justify-between gap-2 p-2 bg-sidebar border-t border-border overflow-x-auto pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))]"
                 }
             >
@@ -986,48 +660,50 @@ export function VideoPanel({
                     <Button
                         variant="ghost"
                         size="sm"
-                        className="w-8 h-8 p-0"
+                        className={ctrlBtn}
                         onClick={toggleCamera}
                         title={isVideoOff ? "Turn on camera" : "Turn off camera"}
                     >
-                        {isVideoOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+                        {isVideoOff ? <VideoOff className={ctrlIcon} /> : <Video className={ctrlIcon} />}
                     </Button>
                     <Button
                         variant="ghost"
                         size="sm"
-                        className="w-8 h-8 p-0"
+                        className={ctrlBtn}
                         onClick={toggleMic}
                         title={isMuted ? "Unmute" : "Mute"}
                     >
-                        {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        {isMuted ? <MicOff className={ctrlIcon} /> : <Mic className={ctrlIcon} />}
                     </Button>
                     <Popover>
                         <PopoverTrigger asChild>
-                            <Button variant="ghost" size="sm" className="w-8 h-8 p-0" title="Device Settings">
-                                <Settings className="w-4 h-4" />
+                            <Button variant="ghost" size="sm" className={ctrlBtn} title="Device & Audio Settings">
+                                <Settings className={ctrlIcon} />
                             </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-80" side={controlsPosition === "right" ? "left" : "top"} align="start">
-                            <div className="grid gap-4">
-                                <div className="space-y-2">
-                                    <h4 className="font-medium leading-none">Device Settings</h4>
-                                    <p className="text-sm text-muted-foreground">
-                                        Switch your camera or microphone.
-                                    </p>
-                                </div>
-                                <MediaDeviceSettings />
-                            </div>
+                        <PopoverContent
+                            className="w-[min(22rem,calc(100vw-1.5rem))] max-h-[min(70vh,34rem)] overflow-y-auto"
+                            side={controlsPosition === "right" ? "left" : "top"}
+                            align="start"
+                        >
+                            <MediaSettingsPanel
+                                audioSettings={audioSettings}
+                                onAudioSettingsChange={onAudioSettingsChange}
+                                controlsDisabled={controlsDisabled}
+                                micGain={micGain}
+                                onMicGainChange={onMicGainChange}
+                            />
                         </PopoverContent>
                     </Popover>
                 </div>
 
-                {/* Music Mode Toggle */}
+                {/* Audio Processing quick toggles */}
                 <div className={`flex ${controlsPosition === "right" ? "flex-col" : "items-center"} gap-2`}>
                     <Popover>
                         <PopoverTrigger asChild>
-                            <Button variant="ghost" size="sm" className={controlsPosition === "right" ? "w-8 h-8 p-0" : "h-8 px-2 gap-1.5 text-xs"} title="Audio Processing">
-                                <AudioLines className="w-4 h-4" />
-                                {controlsPosition !== "right" && "Audio"}
+                            <Button variant="ghost" size="sm" className={controlsPosition === "right" || isMobile ? ctrlBtn : "h-8 px-2 gap-1.5 text-xs"} title="Audio Processing">
+                                <AudioLines className={ctrlIcon} />
+                                {controlsPosition !== "right" && !isMobile && "Audio"}
                             </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-64" side={controlsPosition === "right" ? "left" : "top"} align="center">
@@ -1082,14 +758,14 @@ export function VideoPanel({
 
                     {/* Student Audio (Teacher only) */}
                     {!isStudent && studentAudioSettings && onStudentAudioSettingsChange && (
-                        <Popover>
+                        <Popover open={studentDiagOpen} onOpenChange={setStudentDiagOpen}>
                             <PopoverTrigger asChild>
-                                <Button variant="ghost" size="sm" className={controlsPosition === "right" ? "w-8 h-8 p-0" : "h-8 px-2 gap-1.5 text-xs"} title="Student Audio">
-                                    <UserCog className="w-4 h-4" />
-                                    {controlsPosition !== "right" && "Student"}
+                                <Button variant="ghost" size="sm" className={controlsPosition === "right" || isMobile ? ctrlBtn : "h-8 px-2 gap-1.5 text-xs"} title="Student Audio">
+                                    <UserCog className={ctrlIcon} />
+                                    {controlsPosition !== "right" && !isMobile && "Student"}
                                 </Button>
                             </PopoverTrigger>
-                            <PopoverContent className="w-64" side={controlsPosition === "right" ? "left" : "top"} align="center">
+                            <PopoverContent className="w-72 max-h-[min(70vh,32rem)] overflow-y-auto" side={controlsPosition === "right" ? "left" : "top"} align="center">
                                 <div className="grid gap-3">
                                     <div className="space-y-1">
                                         <h4 className="font-medium leading-none text-sm">Student Audio</h4>
@@ -1132,6 +808,19 @@ export function VideoPanel({
                                             />
                                         </div>
                                     </div>
+
+                                    {/* Live diagnostics: what the student's browser actually applied */}
+                                    <div className="space-y-1 pt-1 border-t border-border">
+                                        <h4 className="font-medium leading-none text-xs pt-2">Student Diagnostics</h4>
+                                        <p className="text-[10px] text-muted-foreground pb-1">
+                                            Requested → applied on the student&apos;s device
+                                        </p>
+                                        <StudentDiagnostics
+                                            reports={remoteAudioDiagnostics}
+                                            requested={studentAudioSettings}
+                                            active={studentDiagOpen}
+                                        />
+                                    </div>
                                 </div>
                             </PopoverContent>
                         </Popover>
@@ -1151,14 +840,14 @@ export function VideoPanel({
                         <Button
                             variant={effectiveIsRecording ? "destructive" : "ghost"}
                             size="sm"
-                            className="w-8 h-8 p-0"
+                            className={ctrlBtn}
                             onClick={handleRecordToggle}
                             title={effectiveIsRecording ? "Stop Recording" : "Start Recording"}
                         >
                             {effectiveIsRecording ? (
-                                <Square className="w-4 h-4" />
+                                <Square className={ctrlIcon} />
                             ) : (
-                                <CircleDot className="w-4 h-4" />
+                                <CircleDot className={ctrlIcon} />
                             )}
                         </Button>
                     </div>
