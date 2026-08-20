@@ -35,6 +35,13 @@ import type { AudioDiagnosticsReport } from "@/hooks/use-audio-diagnostics"
 
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 // ============================================================================
 // Types
@@ -78,6 +85,8 @@ export interface VideoPanelProps {
     // in the student's browser
     studentMicGain?: number
     onStudentMicGainChange?: (gain: number) => void
+    // Teacher-only: ask a student (by identity) to switch capture microphone
+    onStudentMicDeviceChange?: (targetIdentity: string, deviceId: string) => void
     // Live per-participant mic reports collected by useAudioDiagnostics
     remoteAudioDiagnostics?: Record<string, AudioDiagnosticsReport & { receivedAt: number }>
 }
@@ -219,10 +228,12 @@ function StudentDiagnostics({
     reports,
     requested,
     active,
+    onStudentMicDeviceChange,
 }: {
     reports: Record<string, AudioDiagnosticsReport & { receivedAt: number }>
     requested: AudioProcessingSettings
     active: boolean
+    onStudentMicDeviceChange?: (targetIdentity: string, deviceId: string) => void
 }) {
     const room = useRoomContext()
     const [levels, setLevels] = useState<Record<string, number>>({})
@@ -274,6 +285,37 @@ function StudentDiagnostics({
                             {report.deviceLabel}
                             {report.micGain !== undefined && report.micGain !== 1 && ` · vol ${Math.round(report.micGain * 100)}%`}
                         </div>
+
+                        {/* Switch the student's capture mic. The list comes from the
+                            student's own browser — only it can enumerate their devices. */}
+                        {onStudentMicDeviceChange && (
+                            report.devices && report.devices.length > 0 ? (
+                                <Select
+                                    value={report.activeDeviceId}
+                                    onValueChange={(deviceId) => onStudentMicDeviceChange(report.identity, deviceId)}
+                                >
+                                    <SelectTrigger className="w-full h-7 text-[11px]">
+                                        <SelectValue placeholder="Select microphone" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {report.devices.map((device) => (
+                                            <SelectItem key={device.deviceId} value={device.deviceId} className="text-xs">
+                                                {device.label || `Microphone ${device.deviceId.substring(0, 5)}`}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            ) : (
+                                <p className="text-[10px] text-muted-foreground italic">
+                                    Waiting for the student&apos;s device list…
+                                </p>
+                            )
+                        )}
+                        {report.micDeviceError && (
+                            <p className="text-[10px] text-red-500">
+                                Mic switch failed: {report.micDeviceError}
+                            </p>
+                        )}
                         {/* Live input level */}
                         <div className="h-1.5 rounded bg-secondary overflow-hidden">
                             <div
@@ -317,6 +359,7 @@ export function VideoPanel({
     onMicGainChange,
     studentMicGain = 1,
     onStudentMicGainChange,
+    onStudentMicDeviceChange,
     remoteAudioDiagnostics = {},
 }: VideoPanelProps) {
     // LiveKit local participant for camera/mic control
@@ -847,14 +890,15 @@ export function VideoPanel({
 
                                     {/* Live diagnostics: what the student's browser actually applied */}
                                     <div className="space-y-1 pt-1 border-t border-border">
-                                        <h4 className="font-medium leading-none text-xs pt-2">Student Diagnostics</h4>
+                                        <h4 className="font-medium leading-none text-xs pt-2">Student Microphone</h4>
                                         <p className="text-[10px] text-muted-foreground pb-1">
-                                            Requested → applied on the student&apos;s device
+                                            Pick their input source · requested → applied on their device
                                         </p>
                                         <StudentDiagnostics
                                             reports={remoteAudioDiagnostics}
                                             requested={studentAudioSettings}
                                             active={studentDiagOpen}
+                                            onStudentMicDeviceChange={onStudentMicDeviceChange}
                                         />
                                     </div>
                                 </div>

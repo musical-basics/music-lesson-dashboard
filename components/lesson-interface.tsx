@@ -205,7 +205,10 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
 
   // Everyone broadcasts what their mic pipeline actually applied; the teacher's
   // Student Audio popover renders the student reports as live diagnostics.
-  const remoteAudioDiagnostics = useAudioDiagnostics(
+  const {
+    reports: remoteAudioDiagnostics,
+    requestMicDevice,
+  } = useAudioDiagnostics(
     isStudent ? "student" : "teacher",
     effectiveAudioSettings,
     effectiveMicGain
@@ -715,6 +718,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       onMicGainChange={handleMicGainChange}
                       studentMicGain={!isStudent ? studentMicGain : undefined}
                       onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
+                      onStudentMicDeviceChange={!isStudent ? requestMicDevice : undefined}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -774,6 +778,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       onMicGainChange={handleMicGainChange}
                       studentMicGain={!isStudent ? studentMicGain : undefined}
                       onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
+                      onStudentMicDeviceChange={!isStudent ? requestMicDevice : undefined}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -805,6 +810,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       onMicGainChange={handleMicGainChange}
                       studentMicGain={!isStudent ? studentMicGain : undefined}
                       onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
+                      onStudentMicDeviceChange={!isStudent ? requestMicDevice : undefined}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -850,6 +856,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                   onMicGainChange={handleMicGainChange}
                   studentMicGain={!isStudent ? studentMicGain : undefined}
                   onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
+                  onStudentMicDeviceChange={!isStudent ? requestMicDevice : undefined}
                   remoteAudioDiagnostics={remoteAudioDiagnostics}
                 />
 
