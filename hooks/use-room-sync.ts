@@ -33,6 +33,10 @@ export interface RoomSettings {
     studentEchoCancellation: boolean
     studentNoiseSuppression: boolean
     studentAutoGainControl: boolean
+    // Teacher-controlled mic input gain for the student (1 = 100%, unmodified).
+    // Applied in the student's browser by the WebAudio gain processor, so it
+    // affects what everyone hears — the teacher, other students, the recording.
+    studentMicGain: number
 }
 
 export interface RoomState {
@@ -50,7 +54,8 @@ const DEFAULT_SETTINGS: RoomSettings = {
     autoGainControl: false,
     studentEchoCancellation: true,  // ON by default for students too
     studentNoiseSuppression: false,
-    studentAutoGainControl: false
+    studentAutoGainControl: false,
+    studentMicGain: 1
 }
 
 export function useRoomSync(studentId: string, role: 'teacher' | 'student') {

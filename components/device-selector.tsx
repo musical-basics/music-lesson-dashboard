@@ -280,10 +280,13 @@ export function MediaSettingsPanel({
                         min={0}
                         max={200}
                         step={5}
+                        disabled={controlsDisabled}
                         onValueChange={([v]) => onMicGainChange(v / 100)}
                     />
                     <p className="text-[10px] text-muted-foreground">
-                        100% = unmodified. Boost quiet mics up to 200%.
+                        {controlsDisabled
+                            ? "Controlled by teacher"
+                            : "100% = unmodified. Boost quiet mics up to 200%."}
                     </p>
                 </div>
             )}

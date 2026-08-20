@@ -155,6 +155,14 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     })
   }
 
+  // Handler for teacher adjusting the student's mic input volume. Broadcast over
+  // room sync; the student's browser applies it to its own published mic track,
+  // so the boost reaches every listener and the recording — not just this tab.
+  const handleStudentMicGainChange = (gain: number) => {
+    if (isStudent) return
+    setRoomSettings({ studentMicGain: gain })
+  }
+
   // Teacher sees their own settings; student uses student-specific fields when controlled
   const effectiveAudioSettings: AudioProcessingSettings = isControlled
     ? {
@@ -189,12 +197,18 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     }
   }
 
+  // The gain this browser actually applies to its own mic. A student under
+  // teacher control follows the teacher's broadcast value instead of their own
+  // local slider, mirroring how EC/NS/AGC already work.
+  const studentMicGain = settings.studentMicGain ?? 1
+  const effectiveMicGain = isControlled ? studentMicGain : micGain
+
   // Everyone broadcasts what their mic pipeline actually applied; the teacher's
   // Student Audio popover renders the student reports as live diagnostics.
   const remoteAudioDiagnostics = useAudioDiagnostics(
     isStudent ? "student" : "teacher",
     effectiveAudioSettings,
-    micGain
+    effectiveMicGain
   )
 
   const isMobile = useIsMobile()
@@ -697,8 +711,10 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       isRecording={isRecording}
                       recordingStatus={recordingStatus}
                       onToggleRecording={toggleRecording}
-                      micGain={micGain}
+                      micGain={effectiveMicGain}
                       onMicGainChange={handleMicGainChange}
+                      studentMicGain={!isStudent ? studentMicGain : undefined}
+                      onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -754,8 +770,10 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       isRecording={isRecording}
                       recordingStatus={recordingStatus}
                       onToggleRecording={toggleRecording}
-                      micGain={micGain}
+                      micGain={effectiveMicGain}
                       onMicGainChange={handleMicGainChange}
+                      studentMicGain={!isStudent ? studentMicGain : undefined}
+                      onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -783,8 +801,10 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       isRecording={isRecording}
                       recordingStatus={recordingStatus}
                       onToggleRecording={toggleRecording}
-                      micGain={micGain}
+                      micGain={effectiveMicGain}
                       onMicGainChange={handleMicGainChange}
+                      studentMicGain={!isStudent ? studentMicGain : undefined}
+                      onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -826,8 +846,10 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                   onToggleRecording={toggleRecording}
                   layout={settings.dualLayout}
                   controlsPosition={isShortLandscape ? "right" : "bottom"}
-                  micGain={micGain}
+                  micGain={effectiveMicGain}
                   onMicGainChange={handleMicGainChange}
+                  studentMicGain={!isStudent ? studentMicGain : undefined}
+                  onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
                   remoteAudioDiagnostics={remoteAudioDiagnostics}
                 />
 

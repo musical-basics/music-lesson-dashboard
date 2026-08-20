@@ -18,6 +18,7 @@ import {
     CheckCircle2,
     XCircle,
     HelpCircle,
+    Volume2,
 } from "lucide-react"
 import {
     Popover,
@@ -33,6 +34,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import type { AudioDiagnosticsReport } from "@/hooks/use-audio-diagnostics"
 
 import { Label } from "@/components/ui/label"
+import { Slider } from "@/components/ui/slider"
 
 // ============================================================================
 // Types
@@ -70,7 +72,12 @@ export interface VideoPanelProps {
     onToggleRecording?: () => void
     // Mic input volume (1 = 100%), owned by LessonInterface so it survives remounts
     micGain?: number
+    // Omitted when a student is under teacher control — the teacher drives the value
     onMicGainChange?: (gain: number) => void
+    // Teacher-only: the student's mic gain, broadcast over room sync and applied
+    // in the student's browser
+    studentMicGain?: number
+    onStudentMicGainChange?: (gain: number) => void
     // Live per-participant mic reports collected by useAudioDiagnostics
     remoteAudioDiagnostics?: Record<string, AudioDiagnosticsReport & { receivedAt: number }>
 }
@@ -308,6 +315,8 @@ export function VideoPanel({
     onToggleRecording,
     micGain = 1,
     onMicGainChange,
+    studentMicGain = 1,
+    onStudentMicGainChange,
     remoteAudioDiagnostics = {},
 }: VideoPanelProps) {
     // LiveKit local participant for camera/mic control
@@ -808,6 +817,33 @@ export function VideoPanel({
                                             />
                                         </div>
                                     </div>
+
+                                    {/* Student input volume — applied on the student's
+                                        machine, so it reaches every listener and the recording */}
+                                    {onStudentMicGainChange && (
+                                        <div className="space-y-2 pt-1 border-t border-border">
+                                            <div className="flex items-center justify-between pt-2">
+                                                <Label className="flex items-center gap-2 text-xs">
+                                                    <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
+                                                    Input Volume
+                                                </Label>
+                                                <span className="text-xs text-muted-foreground tabular-nums">
+                                                    {Math.round(studentMicGain * 100)}%
+                                                </span>
+                                            </div>
+                                            <Slider
+                                                value={[Math.round(studentMicGain * 100)]}
+                                                min={0}
+                                                max={200}
+                                                step={5}
+                                                onValueChange={([v]) => onStudentMicGainChange(v / 100)}
+                                            />
+                                            <p className="text-[10px] text-muted-foreground">
+                                                Boosts the student&apos;s mic on their machine — everyone
+                                                in the room and the recording hear it.
+                                            </p>
+                                        </div>
+                                    )}
 
                                     {/* Live diagnostics: what the student's browser actually applied */}
                                     <div className="space-y-1 pt-1 border-t border-border">
