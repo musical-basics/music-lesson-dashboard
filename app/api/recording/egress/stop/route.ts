@@ -62,6 +62,29 @@ export async function POST(request: Request) {
 
         const publicUrl = getPublicUrl(key);
 
+        // LiveKit finishes writing to R2 a few seconds after stopEgress()
+        // returns, so fileResults rarely carries a size and the row used to be
+        // saved with size_bytes = 0 forever. Poll the object briefly and use
+        // its real content-length; if it isn't up yet we still save the row and
+        // scripts/backfill-recording-metadata.mjs can repair it later.
+        if (!fileSize) {
+            for (const waitMs of [1500, 3000, 5000]) {
+                await new Promise((r) => setTimeout(r, waitMs));
+                try {
+                    const head = await fetch(publicUrl, { method: "HEAD" });
+                    if (head.ok) {
+                        const len = Number(head.headers.get("content-length") || 0);
+                        if (len > 0) {
+                            fileSize = len;
+                            break;
+                        }
+                    }
+                } catch {
+                    // Not visible yet — keep waiting.
+                }
+            }
+        }
+
         const { error: dbError } = await supabase.from("classroom_recordings").insert({
             student_id: studentId,
             teacher_id: teacherId,
