@@ -243,8 +243,8 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
         body: JSON.stringify({ roomName: room.name, studentId: studentId || "guest" }),
       })
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || "Failed to start recording")
+        const err = await res.json().catch(() => ({} as { error?: string }))
+        throw new Error(err.error || `Recording could not start (server returned ${res.status}).`)
       }
       const data = await res.json()
       egressIdRef.current = data.egressId
@@ -257,7 +257,13 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
       egressKeyRef.current = null
       setIsRecording(false)
       setRecordingStatus("")
-      alert("Couldn't start the recording. Please try again.")
+      // Show the actual reason the server gave. The old fixed "please try again"
+      // message hid the cause, and the causes that matter here (recording already
+      // running, LiveKit limit reached) do not clear on a retry click.
+      const reason = err instanceof Error && err.message
+        ? err.message
+        : "Recording could not start — the server did not say why."
+      alert(`Couldn't start the recording.\n\n${reason}`)
     } finally {
       isStartingRef.current = false
     }

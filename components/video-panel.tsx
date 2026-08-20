@@ -379,6 +379,7 @@ export function VideoPanel({
     // recording state — all LessonInterface call sites pass controlled props).
     const egressIdRef = useRef<string | null>(null)
     const egressKeyRef = useRef<string | null>(null)
+    const isStartingRef = useRef(false) // guards against double-click while the start request is in flight
 
     const lastAppliedAudioSettingsRef = useRef<string | null>(null)
     const micOptionsRef = useRef(getMusicAudioCaptureOptions(undefined, audioSettings))
@@ -531,7 +532,11 @@ export function VideoPanel({
     // ---- Recording fallback (server-side LiveKit Egress) ----
 
     const startRecording = async () => {
-        if (isRecording || egressIdRef.current) return
+        // isStartingRef guards the in-flight window: without it, impatient repeat
+        // clicks fire concurrent start requests that race for the same room's
+        // single egress slot.
+        if (isRecording || egressIdRef.current || isStartingRef.current) return
+        isStartingRef.current = true
 
         try {
             setUploadStatus("Starting...")
@@ -546,8 +551,8 @@ export function VideoPanel({
             })
 
             if (!res.ok) {
-                const err = await res.json().catch(() => ({}))
-                throw new Error(err.error || 'Failed to start recording')
+                const err = await res.json().catch(() => ({} as { error?: string }))
+                throw new Error(err.error || `Recording could not start (server returned ${res.status}).`)
             }
 
             const data = await res.json()
@@ -562,7 +567,12 @@ export function VideoPanel({
             egressKeyRef.current = null
             setIsRecording(false)
             setUploadStatus("")
-            alert("Couldn't start the recording. Please try again.")
+            const reason = err instanceof Error && err.message
+                ? err.message
+                : "Recording could not start — the server did not say why."
+            alert(`Couldn't start the recording.\n\n${reason}`)
+        } finally {
+            isStartingRef.current = false
         }
     }
 
