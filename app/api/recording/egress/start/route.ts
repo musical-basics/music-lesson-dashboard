@@ -4,8 +4,10 @@ import {
     EgressStatus,
     EncodedFileOutput,
     EncodedFileType,
+    RoomServiceClient,
     S3Upload,
 } from "livekit-server-sdk";
+import { reapOrphanedEgresses } from "@/lib/egress-reaper";
 
 // Server-side recording via LiveKit Egress.
 //
@@ -128,6 +130,24 @@ export async function POST(request: Request) {
                 }),
             },
         });
+
+        // Free any slots held by recordings whose lesson is long over before we
+        // ask for a new one. This is what keeps a closed tab or a dead laptop
+        // from permanently costing a slot and failing every later recording
+        // with "recording limit is currently maxed out".
+        try {
+            const roomClient = new RoomServiceClient(livekitHttpUrl(), apiKey, apiSecret);
+            const reaped = await reapOrphanedEgresses(egressClient, roomClient, roomName);
+            if (reaped.stopped.length) {
+                console.log(`[Recording/Egress] Reaped ${reaped.stopped.length} orphaned egress(es) before start`);
+            }
+            if (reaped.error) {
+                console.error("[Recording/Egress] Reaper:", reaped.error);
+            }
+        } catch (e) {
+            // Never block a recording on cleanup.
+            console.error("[Recording/Egress] Reaper threw (continuing):", e);
+        }
 
         const info = await egressClient.startRoomCompositeEgress(
             roomName,

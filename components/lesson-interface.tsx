@@ -24,6 +24,7 @@ import {
 import { useRoomContext } from "@livekit/components-react"
 import { useIsMobile, useIsShortLandscape } from "@/hooks/use-mobile"
 import { useAudioDiagnostics } from "@/hooks/use-audio-diagnostics"
+import { useStudentOutputVolume } from "@/hooks/use-student-output-volume"
 import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
@@ -197,11 +198,34 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     }
   }
 
-  // The gain this browser actually applies to its own mic. A student under
-  // teacher control follows the teacher's broadcast value instead of their own
-  // local slider, mirroring how EC/NS/AGC already work.
+  // The gain this browser actually applies to its own mic.
+  //
+  // The teacher's value is an explicit per-student override, so it must NOT be
+  // gated on teacherControlEnabled the way view-mode/EC/NS/AGC are: that gate
+  // was why dragging the teacher's Input Volume to 70% changed nothing unless
+  // "teacher control" happened to be on. 100% means "no override" and hands the
+  // slider back to the student's own local control.
   const studentMicGain = settings.studentMicGain ?? 1
-  const effectiveMicGain = isControlled ? studentMicGain : micGain
+  const teacherOverridesMicGain = Math.abs(studentMicGain - 1) > 0.005
+  const effectiveMicGain = isStudent && teacherOverridesMicGain ? studentMicGain : micGain
+
+  // Teacher-local playback volume for the students. Unlike the mic gain above
+  // this never leaves this browser, which is exactly why it is here: it still
+  // works when the student's device won't apply a capture-side gain.
+  const [studentOutputVolume, setStudentOutputVolumeState] = useState(1)
+  useEffect(() => {
+    const stored = parseFloat(localStorage.getItem("student-output-volume") || "1")
+    if (!isNaN(stored)) setStudentOutputVolumeState(Math.min(1, Math.max(0, stored)))
+  }, [])
+  const handleStudentOutputVolumeChange = (volume: number) => {
+    setStudentOutputVolumeState(volume)
+    try {
+      localStorage.setItem("student-output-volume", String(volume))
+    } catch {
+      // Private browsing — still applies for this session.
+    }
+  }
+  useStudentOutputVolume(studentOutputVolume, !isStudent)
 
   // Everyone broadcasts what their mic pipeline actually applied; the teacher's
   // Student Audio popover renders the student reports as live diagnostics.
@@ -301,6 +325,17 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     }
   }
 
+  // Leaving the lesson ends the recording. Without this the egress keeps
+  // running after the teacher walks away — the room may still hold the student,
+  // so LiveKit's own empty-room cleanup doesn't fire either, and the slot stays
+  // taken until the reaper notices.
+  const handleLeaveLesson = async () => {
+    if (egressIdRef.current) {
+      await stopRecording()
+    }
+    onLeaveLesson?.()
+  }
+
   const toggleRecording = () => {
     if (isRecording) {
       stopRecording()
@@ -320,6 +355,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
           key: egressKeyRef.current,
           studentId: studentId || "guest",
           teacherId,
+          // Skip the server's R2 size probe: an unload request that blocks for
+          // ~9s gets killed, and a killed request never stops the egress.
+          fast: true,
         })
         navigator.sendBeacon(
           "/api/recording/egress/stop",
@@ -595,7 +633,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                     variant="ghost"
                     size="sm"
                     className="gap-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                    onClick={onLeaveLesson}
+                    onClick={handleLeaveLesson}
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     Leave Lesson
@@ -725,6 +763,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       studentMicGain={!isStudent ? studentMicGain : undefined}
                       onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
                       onStudentMicDeviceChange={!isStudent ? requestMicDevice : undefined}
+                      studentOutputVolume={!isStudent ? studentOutputVolume : undefined}
+                      onStudentOutputVolumeChange={!isStudent ? handleStudentOutputVolumeChange : undefined}
+                      micGainControlled={isStudent && teacherOverridesMicGain}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -785,6 +826,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       studentMicGain={!isStudent ? studentMicGain : undefined}
                       onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
                       onStudentMicDeviceChange={!isStudent ? requestMicDevice : undefined}
+                      studentOutputVolume={!isStudent ? studentOutputVolume : undefined}
+                      onStudentOutputVolumeChange={!isStudent ? handleStudentOutputVolumeChange : undefined}
+                      micGainControlled={isStudent && teacherOverridesMicGain}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -817,6 +861,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       studentMicGain={!isStudent ? studentMicGain : undefined}
                       onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
                       onStudentMicDeviceChange={!isStudent ? requestMicDevice : undefined}
+                      studentOutputVolume={!isStudent ? studentOutputVolume : undefined}
+                      onStudentOutputVolumeChange={!isStudent ? handleStudentOutputVolumeChange : undefined}
+                      micGainControlled={isStudent && teacherOverridesMicGain}
                       remoteAudioDiagnostics={remoteAudioDiagnostics}
                     />
                   </div>
@@ -863,6 +910,9 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                   studentMicGain={!isStudent ? studentMicGain : undefined}
                   onStudentMicGainChange={!isStudent ? handleStudentMicGainChange : undefined}
                   onStudentMicDeviceChange={!isStudent ? requestMicDevice : undefined}
+                  studentOutputVolume={!isStudent ? studentOutputVolume : undefined}
+                  onStudentOutputVolumeChange={!isStudent ? handleStudentOutputVolumeChange : undefined}
+                  micGainControlled={isStudent && teacherOverridesMicGain}
                   remoteAudioDiagnostics={remoteAudioDiagnostics}
                 />
 
@@ -986,7 +1036,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                     variant="destructive"
                     size="icon"
                     className="h-11 w-11 rounded-full shadow-xl"
-                    onClick={onLeaveLesson}
+                    onClick={handleLeaveLesson}
                     title="End Call"
                     aria-label="End Call"
                   >

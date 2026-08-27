@@ -24,6 +24,8 @@ interface MediaSettingsPanelProps {
     controlsDisabled?: boolean
     micGain?: number
     onMicGainChange?: (gain: number) => void
+    // The teacher has overridden this student's mic gain from their own panel
+    micGainControlled?: boolean
 }
 
 // Meters the actual outgoing mic signal: the gain-processed track when the
@@ -202,6 +204,7 @@ export function MediaSettingsPanel({
     controlsDisabled = false,
     micGain = 1,
     onMicGainChange,
+    micGainControlled = false,
 }: MediaSettingsPanelProps) {
     const video = useMediaDeviceSelect({ kind: "videoinput" })
     const audio = useMediaDeviceSelect({ kind: "audioinput" })
@@ -280,11 +283,11 @@ export function MediaSettingsPanel({
                         min={0}
                         max={200}
                         step={5}
-                        disabled={controlsDisabled}
+                        disabled={controlsDisabled || micGainControlled}
                         onValueChange={([v]) => onMicGainChange(v / 100)}
                     />
                     <p className="text-[10px] text-muted-foreground">
-                        {controlsDisabled
+                        {controlsDisabled || micGainControlled
                             ? "Controlled by teacher"
                             : "100% = unmodified. Boost quiet mics up to 200%."}
                     </p>

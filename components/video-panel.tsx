@@ -19,6 +19,9 @@ import {
     XCircle,
     HelpCircle,
     Volume2,
+    Headphones,
+    ZoomIn,
+    ZoomOut,
 } from "lucide-react"
 import {
     Popover,
@@ -87,8 +90,135 @@ export interface VideoPanelProps {
     onStudentMicGainChange?: (gain: number) => void
     // Teacher-only: ask a student (by identity) to switch capture microphone
     onStudentMicDeviceChange?: (targetIdentity: string, deviceId: string) => void
+    // Teacher-only: how loud the students are in THIS browser's speakers (0-1).
+    // Local playback only — never leaves this tab.
+    studentOutputVolume?: number
+    onStudentOutputVolumeChange?: (volume: number) => void
+    // Student-side: the teacher has overridden our mic gain, so our own slider
+    // is along for the ride
+    micGainControlled?: boolean
     // Live per-participant mic reports collected by useAudioDiagnostics
     remoteAudioDiagnostics?: Record<string, AudioDiagnosticsReport & { receivedAt: number }>
+}
+
+
+// ============================================================================
+// ZoomableTile - local-only zoom/pan for a participant tile
+// ============================================================================
+
+// A phone held upright publishes a portrait frame, which letterboxes into a
+// widescreen tile with big black bars and leaves the player tiny. This lets the
+// viewer scale into the tile and drag around it. Purely a local view control:
+// it touches no track and no room state, so the other side and the recording
+// are unaffected.
+const MAX_ZOOM = 4
+
+function ZoomableTile({
+    track,
+    className,
+    style,
+    enabled = true,
+}: {
+    track: TrackReferenceOrPlaceholder
+    className?: string
+    style?: React.CSSProperties
+    enabled?: boolean
+}) {
+    const [zoom, setZoom] = useState(1)
+    const [offset, setOffset] = useState({ x: 0, y: 0 })
+    const containerRef = useRef<HTMLDivElement>(null)
+    const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
+
+    // Pan is expressed in percent of the tile and applied before the scale, so
+    // the furthest we can travel before exposing an edge is 50*(z-1)/z percent.
+    const clamp = useCallback((value: number, z: number) => {
+        const limit = z <= 1 ? 0 : (50 * (z - 1)) / z
+        return Math.min(limit, Math.max(-limit, value))
+    }, [])
+
+    const applyZoom = useCallback((next: number) => {
+        const z = Math.min(MAX_ZOOM, Math.max(1, next))
+        setZoom(z)
+        setOffset((o) => (z === 1 ? { x: 0, y: 0 } : { x: clamp(o.x, z), y: clamp(o.y, z) }))
+    }, [clamp])
+
+    const onPointerDown = (e: React.PointerEvent) => {
+        if (zoom === 1) return
+        e.currentTarget.setPointerCapture(e.pointerId)
+        dragRef.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y }
+    }
+    const onPointerMove = (e: React.PointerEvent) => {
+        const drag = dragRef.current
+        const rect = containerRef.current?.getBoundingClientRect()
+        if (!drag || !rect) return
+        // Divide by zoom: a pixel of cursor travel moves the scaled image by z px.
+        const dx = ((e.clientX - drag.x) / rect.width) * 100 / zoom
+        const dy = ((e.clientY - drag.y) / rect.height) * 100 / zoom
+        setOffset({ x: clamp(drag.ox + dx, zoom), y: clamp(drag.oy + dy, zoom) })
+    }
+    const endDrag = () => {
+        dragRef.current = null
+    }
+
+    return (
+        <div ref={containerRef} className={`group ${className ?? ""}`} style={style}>
+            <div
+                className="w-full h-full"
+                style={{
+                    transform: `scale(${zoom}) translate(${offset.x}%, ${offset.y}%)`,
+                    transformOrigin: "center",
+                    cursor: zoom > 1 ? "grab" : undefined,
+                    touchAction: zoom > 1 ? "none" : undefined,
+                }}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                onDoubleClick={() => applyZoom(1)}
+            >
+                <ParticipantTile trackRef={track} className="w-full h-full" />
+            </div>
+
+            {enabled && (
+                <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/60 backdrop-blur-sm p-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-white hover:bg-white/20"
+                        title="Zoom out"
+                        disabled={zoom <= 1}
+                        onClick={() => applyZoom(zoom - 0.25)}
+                    >
+                        <ZoomOut className="w-3.5 h-3.5" />
+                    </Button>
+                    <span className="text-[10px] text-white tabular-nums w-8 text-center">
+                        {zoom.toFixed(2).replace(/\.?0+$/, "")}x
+                    </span>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-white hover:bg-white/20"
+                        title="Zoom in"
+                        disabled={zoom >= MAX_ZOOM}
+                        onClick={() => applyZoom(zoom + 0.25)}
+                    >
+                        <ZoomIn className="w-3.5 h-3.5" />
+                    </Button>
+                    {zoom > 1 && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-[10px] text-white hover:bg-white/20"
+                            title="Reset zoom"
+                            onClick={() => applyZoom(1)}
+                        >
+                            Reset
+                        </Button>
+                    )}
+                </div>
+            )}
+        </div>
+    )
 }
 
 // ============================================================================
@@ -121,9 +251,12 @@ function VerticalVideoStack({ aspectRatio = "standard", layout = "vertical" }: {
                 style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}
             >
                 {tracks.map((track) => (
-                    <div key={trackKey(track)} className="relative overflow-hidden min-h-0 min-w-0 video-aspect-cover">
-                        <ParticipantTile trackRef={track} className="w-full h-full" />
-                    </div>
+                    <ZoomableTile
+                        key={trackKey(track)}
+                        track={track}
+                        className="relative overflow-hidden min-h-0 min-w-0 video-aspect-cover"
+                        enabled={!track.participant.isLocal}
+                    />
                 ))}
             </div>
         )
@@ -171,16 +304,13 @@ function VerticalVideoStack({ aspectRatio = "standard", layout = "vertical" }: {
     return (
         <div className={`flex ${isHorizontal ? 'flex-row' : 'flex-col'} h-full w-full bg-black rounded-lg overflow-hidden`}>
             {tracks.map((track) => (
-                <div
+                <ZoomableTile
                     key={trackKey(track)}
+                    track={track}
                     className={trackClass}
                     style={getContainerStyle()}
-                >
-                    <ParticipantTile
-                        trackRef={track}
-                        className="w-full h-full"
-                    />
-                </div>
+                    enabled={!track.participant.isLocal}
+                />
             ))}
             {tracks.length === 0 && (
                 <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
@@ -360,6 +490,9 @@ export function VideoPanel({
     studentMicGain = 1,
     onStudentMicGainChange,
     onStudentMicDeviceChange,
+    studentOutputVolume = 1,
+    onStudentOutputVolumeChange,
+    micGainControlled = false,
     remoteAudioDiagnostics = {},
 }: VideoPanelProps) {
     // LiveKit local participant for camera/mic control
@@ -754,6 +887,7 @@ export function VideoPanel({
                                 controlsDisabled={controlsDisabled}
                                 micGain={micGain}
                                 onMicGainChange={onMicGainChange}
+                                micGainControlled={micGainControlled}
                             />
                         </PopoverContent>
                     </Popover>
@@ -894,6 +1028,34 @@ export function VideoPanel({
                                             <p className="text-[10px] text-muted-foreground">
                                                 Boosts the student&apos;s mic on their machine — everyone
                                                 in the room and the recording hear it.
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Local playback volume. Separate from the mic gain
+                                        above because it always works: it needs nothing from
+                                        the student's device. */}
+                                    {onStudentOutputVolumeChange && (
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <Label className="flex items-center gap-2 text-xs">
+                                                    <Headphones className="w-3.5 h-3.5 text-muted-foreground" />
+                                                    Output Volume
+                                                </Label>
+                                                <span className="text-xs text-muted-foreground tabular-nums">
+                                                    {Math.round(studentOutputVolume * 100)}%
+                                                </span>
+                                            </div>
+                                            <Slider
+                                                value={[Math.round(studentOutputVolume * 100)]}
+                                                min={0}
+                                                max={100}
+                                                step={5}
+                                                onValueChange={([v]) => onStudentOutputVolumeChange(v / 100)}
+                                            />
+                                            <p className="text-[10px] text-muted-foreground">
+                                                How loud they are in your speakers only. Use this if the
+                                                input volume above has no effect on their device.
                                             </p>
                                         </div>
                                     )}

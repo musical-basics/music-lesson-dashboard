@@ -23,6 +23,11 @@ export async function POST(request: Request) {
         const key: string | undefined = body.key;
         const studentId: string = body.studentId || "guest";
         const teacherId: string = body.teacherId || "teacher-1";
+        // Unload beacons must finish fast — the browser gives the request no
+        // time to sit through the R2 size probe below, and a killed request
+        // means the egress is never stopped at all. Save the row with size 0;
+        // scripts/backfill-recording-metadata.mjs repairs it.
+        const fast: boolean = body.fast === true;
 
         if (!egressId || !key) {
             return NextResponse.json({ error: "egressId and key are required" }, { status: 400 });
@@ -67,7 +72,7 @@ export async function POST(request: Request) {
         // saved with size_bytes = 0 forever. Poll the object briefly and use
         // its real content-length; if it isn't up yet we still save the row and
         // scripts/backfill-recording-metadata.mjs can repair it later.
-        if (!fileSize) {
+        if (!fileSize && !fast) {
             for (const waitMs of [1500, 3000, 5000]) {
                 await new Promise((r) => setTimeout(r, waitMs));
                 try {
