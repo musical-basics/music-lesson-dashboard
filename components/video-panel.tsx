@@ -684,7 +684,8 @@ export function VideoPanel({
             })
 
             if (!res.ok) {
-                const err = await res.json().catch(() => ({} as { error?: string }))
+                const err = await res.json().catch(() => ({} as { error?: string; details?: string }))
+                if (err.details) console.error("[Recording] start failed, raw error:", err.details)
                 throw new Error(err.error || `Recording could not start (server returned ${res.status}).`)
             }
 

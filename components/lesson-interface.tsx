@@ -267,7 +267,10 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
         body: JSON.stringify({ roomName: room.name, studentId: studentId || "guest" }),
       })
       if (!res.ok) {
-        const err = await res.json().catch(() => ({} as { error?: string }))
+        const err = await res.json().catch(() => ({} as { error?: string; details?: string }))
+        // The raw LiveKit error is not shown to the teacher, but keep it in the
+        // console — it is what identifies which limit was actually hit.
+        if (err.details) console.error("[Recording] start failed, raw error:", err.details)
         throw new Error(err.error || `Recording could not start (server returned ${res.status}).`)
       }
       const data = await res.json()

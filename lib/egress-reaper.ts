@@ -27,11 +27,27 @@ export interface ReapResult {
   error?: string;
 }
 
-function startedAtMs(startedAt: bigint | undefined): number | null {
-  // LiveKit reports UnixNano; 0 means "not started yet". Divide after the
-  // Number() cast — the tsconfig target predates BigInt literals.
-  if (!startedAt) return null;
-  return Number(startedAt) / 1_000_000;
+function nanosToMs(v: bigint | undefined): number | null {
+  // LiveKit reports UnixNano; 0 means "unset". Divide after the Number() cast —
+  // the tsconfig target predates BigInt literals.
+  if (!v) return null;
+  return Number(v) / 1_000_000;
+}
+
+/**
+ * Best-effort age of an egress.
+ *
+ * `startedAt` stays 0 while an egress is EGRESS_STARTING, and an egress that
+ * fails to attach can sit in STARTING indefinitely. Treating "no startedAt" as
+ * age 0 put those permanently inside the startup grace, so they were never
+ * reaped and held their slot forever — the exact leak this module exists to
+ * prevent. `updatedAt` moves on each status change, so it dates a stuck
+ * STARTING egress; EgressInfo carries no creation timestamp to use instead.
+ */
+function egressAgeMs(egress: { startedAt?: bigint; updatedAt?: bigint }, now: number): number | null {
+  const started = nanosToMs(egress.startedAt) ?? nanosToMs(egress.updatedAt);
+  if (started === null) return null;
+  return now - started;
 }
 
 /**
@@ -78,11 +94,16 @@ export async function reapOrphanedEgresses(
 
   for (const egress of live) {
     const roomName = egress.roomName;
-    const started = startedAtMs(egress.startedAt);
-    const ageMs = started === null ? 0 : now - started;
+    const ageMs = egressAgeMs(egress, now);
 
     if (protectRoom && roomName === protectRoom) {
       kept.push({ egressId: egress.egressId, roomName, reason: "current lesson" });
+      continue;
+    }
+    // No usable timestamp at all: we cannot tell a brand-new egress from a
+    // stuck one, and over-reaping kills a live lesson. Leave it.
+    if (ageMs === null) {
+      kept.push({ egressId: egress.egressId, roomName, reason: "no timestamp available" });
       continue;
     }
     if (ageMs < STARTUP_GRACE_MS) {

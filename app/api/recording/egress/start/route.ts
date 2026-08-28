@@ -165,13 +165,39 @@ export async function POST(request: Request) {
     } catch (error) {
         console.error("[Recording/Egress] Start error:", error);
         const raw = error instanceof Error ? error.message : String(error);
+
         // LiveKit surfaces quota exhaustion as a plain message; translate the
         // common ones so the teacher sees a cause, not just a failure.
-        const friendly = /limit|quota|exceed/i.test(raw)
-            ? "LiveKit's recording limit is currently maxed out. A previous recording may still be finishing — wait about a minute and try again."
-            : /unauthor|permission|denied|invalid.*(key|secret|token)/i.test(raw)
-                ? "The recording service rejected our credentials. Check the LiveKit / R2 keys."
-                : `Recording could not start: ${raw}`;
+        let friendly: string;
+        if (/limit|quota|exceed/i.test(raw)) {
+            // "Wait a minute and try again" was a guess. Say what is actually
+            // holding the slots: if the reaper already cleared everything, the
+            // cap is the LiveKit plan's, and waiting will not help.
+            let occupancy = "";
+            try {
+                const apiKey2 = process.env.LIVEKIT_API_KEY!;
+                const apiSecret2 = process.env.LIVEKIT_API_SECRET!;
+                const client = new EgressClient(livekitHttpUrl(), apiKey2, apiSecret2);
+                const stillActive = (await client.listEgress({ active: true })).filter(
+                    e => e.status === EgressStatus.EGRESS_STARTING || e.status === EgressStatus.EGRESS_ACTIVE
+                );
+                console.error(
+                    `[Recording/Egress] Limit hit; ${stillActive.length} active egress(es):`,
+                    stillActive.map(e => `${e.egressId}(${e.roomName}, status=${e.status})`).join(", ") || "none"
+                );
+                occupancy = stillActive.length
+                    ? ` ${stillActive.length} recording(s) are still running — most likely a previous lesson finishing up. Wait about a minute and try again.`
+                    : " No recordings are still running on our side, so this is the LiveKit plan's own concurrent-recording cap — waiting will not clear it.";
+            } catch (probeErr) {
+                console.error("[Recording/Egress] Occupancy probe failed:", probeErr);
+            }
+            friendly = `LiveKit's recording limit is currently maxed out.${occupancy}`;
+        } else if (/unauthor|permission|denied|invalid.*(key|secret|token)/i.test(raw)) {
+            friendly = "The recording service rejected our credentials. Check the LiveKit / R2 keys.";
+        } else {
+            friendly = `Recording could not start: ${raw}`;
+        }
+
         return NextResponse.json({ error: friendly, details: raw }, { status: 500 });
     }
 }
