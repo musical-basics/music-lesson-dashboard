@@ -169,7 +169,16 @@ export async function POST(request: Request) {
         // LiveKit surfaces quota exhaustion as a plain message; translate the
         // common ones so the teacher sees a cause, not just a failure.
         let friendly: string;
-        if (/limit|quota|exceed/i.test(raw)) {
+        if (/minutes? exceeded/i.test(raw)) {
+            // "Too Many Requests: egress minutes exceeded" (429 resource_exhausted)
+            // is the plan's MONTHLY recording-minutes allowance, not the
+            // concurrent cap below. Nothing is running and nothing can be
+            // reaped — it only clears when the billing period resets or the
+            // LiveKit plan is upgraded, so say that instead of "wait a minute".
+            friendly =
+                "This month's LiveKit recording minutes are used up, so LiveKit refused to start a new recording. " +
+                "Retrying won't help: recording works again when the LiveKit billing period resets, or immediately after upgrading the LiveKit plan.";
+        } else if (/limit|quota|exceed/i.test(raw)) {
             // "Wait a minute and try again" was a guess. Say what is actually
             // holding the slots: if the reaper already cleared everything, the
             // cap is the LiveKit plan's, and waiting will not help.
