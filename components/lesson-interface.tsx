@@ -22,6 +22,7 @@ import {
   Check
 } from "lucide-react"
 import { useRemoteParticipants, useRoomContext } from "@livekit/components-react"
+import { RoomEvent } from "livekit-client"
 import { useIsMobile, useIsShortLandscape } from "@/hooks/use-mobile"
 import { useAudioDiagnostics } from "@/hooks/use-audio-diagnostics"
 import { useStudentOutputVolume } from "@/hooks/use-student-output-volume"
@@ -254,6 +255,20 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
   // teacher switches view modes or toggles sheet music. LessonInterface stays
   // mounted for the whole lesson, so the recording handle survives those toggles.
   const room = useRoomContext()
+
+  // Whether this room is being recorded right now. LiveKit tells every
+  // participant (whoever started it, and also when auto-record did), so the
+  // student's screen can show a badge like Zoom's.
+  const [roomRecording, setRoomRecording] = useState(false)
+  useEffect(() => {
+    if (!room) return
+    setRoomRecording(room.isRecording)
+    const onChange = (recording: boolean) => setRoomRecording(recording)
+    room.on(RoomEvent.RecordingStatusChanged, onChange)
+    return () => {
+      room.off(RoomEvent.RecordingStatusChanged, onChange)
+    }
+  }, [room])
   const teacherId = "teacher-1" // TODO: derive from auth context
   const [isRecording, setIsRecording] = useState(false)
   const [recordingStatus, setRecordingStatus] = useState("")
@@ -534,6 +549,18 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
       ref={lessonShellRef}
       className={`${isFullscreen ? "fixed inset-0 z-[1000] h-screen w-screen" : "relative h-full"} flex flex-col bg-background overflow-hidden`}
     >
+      {/* Students see when the lesson is being recorded (the teacher has the
+          red Record button). Taps pass through so it never blocks a control. */}
+      {isStudent && roomRecording && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute bottom-3 right-3 z-[60] flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-white shadow"
+        >
+          <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse motion-reduce:animate-none" aria-hidden="true" />
+          Recording
+        </div>
+      )}
       {/* View mode switcher - Only on Desktop */}
       {!isMobile && (
         <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-sidebar overflow-x-auto">
