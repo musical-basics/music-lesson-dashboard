@@ -1,21 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { EgressClient, EgressStatus } from "livekit-server-sdk";
-import { createClient } from "@supabase/supabase-js";
 import { notifyPianoStudio } from "@/lib/notify-piano-studio";
-
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-function livekitHttpUrl() {
-    const url = process.env.NEXT_PUBLIC_LIVEKIT_URL || "";
-    return url.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
-}
-
-function getPublicUrl(key: string) {
-    return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL?.replace(/\/$/, "")}/${key}`;
-}
+import { getPublicUrl, livekitHttpUrl, saveRecordingRow } from "@/lib/recording-library";
 
 export async function POST(request: Request) {
     try {
@@ -91,18 +77,15 @@ export async function POST(request: Request) {
             }
         }
 
-        const { error: dbError } = await supabase.from("classroom_recordings").insert({
-            student_id: studentId,
-            teacher_id: teacherId,
-            filename: `Lesson - ${new Date().toLocaleDateString()}`,
-            url: publicUrl,
-            size_bytes: fileSize,
-        });
+        // Shared with the egress_ended webhook, which lands ~40s later with the
+        // final size: whichever arrives first adds the row, the other only fills
+        // in the size, so a lesson never gets two library entries.
+        const saved = await saveRecordingRow({ key, studentId, teacherId, sizeBytes: fileSize });
 
-        if (dbError) {
-            console.error("[Recording/Egress] DB insert error:", dbError);
+        if (saved.error) {
+            console.error("[Recording/Egress] DB insert error:", saved.error);
             return NextResponse.json(
-                { error: "Recording stopped but failed to save to library", details: dbError.message },
+                { error: "Recording stopped but failed to save to library", details: saved.error },
                 { status: 500 }
             );
         }

@@ -21,7 +21,7 @@ import {
   Link2,
   Check
 } from "lucide-react"
-import { useRoomContext } from "@livekit/components-react"
+import { useRemoteParticipants, useRoomContext } from "@livekit/components-react"
 import { useIsMobile, useIsShortLandscape } from "@/hooks/use-mobile"
 import { useAudioDiagnostics } from "@/hooks/use-audio-diagnostics"
 import { useStudentOutputVolume } from "@/hooks/use-student-output-volume"
@@ -39,6 +39,11 @@ interface LessonInterfaceProps {
   onLeaveLesson?: () => void
   onRejoinLesson?: () => void
 }
+
+// Recording starts on its own once the teacher and a student are both in the
+// room (the teacher can still stop it). NEXT_PUBLIC_CLASSROOM_AUTO_RECORD=off
+// turns that off and leaves only the Record button.
+const AUTO_RECORD = process.env.NEXT_PUBLIC_CLASSROOM_AUTO_RECORD !== "off"
 
 export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesson, onRejoinLesson }: LessonInterfaceProps) {
   // Get the Role from URL
@@ -256,7 +261,11 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
   const egressKeyRef = useRef<string | null>(null)
   const isStartingRef = useRef(false) // guards against double-click while the start request is in flight
 
-  const startRecording = async () => {
+  // Set when the teacher presses Stop, so auto-record never restarts a recording
+  // they ended on purpose. Cleared only by reloading the lesson.
+  const stoppedByTeacherRef = useRef(false)
+
+  const startRecording = async (opts: { auto?: boolean } = {}) => {
     if (isRecording || egressIdRef.current || isStartingRef.current) return
     isStartingRef.current = true
     try {
@@ -290,7 +299,13 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
       const reason = err instanceof Error && err.message
         ? err.message
         : "Recording could not start — the server did not say why."
-      alert(`Couldn't start the recording.\n\n${reason}`)
+      if (opts.auto) {
+        // No pop-up in the middle of a lesson: show it by the Record button
+        // (full text on hover) and leave the button ready to try by hand.
+        setRecordingStatus(`Auto-record failed: ${reason}`)
+      } else {
+        alert(`Couldn't start the recording.\n\n${reason}`)
+      }
     } finally {
       isStartingRef.current = false
     }
@@ -341,11 +356,36 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
 
   const toggleRecording = () => {
     if (isRecording) {
+      stoppedByTeacherRef.current = true
       stopRecording()
     } else {
       startRecording()
     }
   }
+
+  // Auto-record: once a student is in the room with the teacher, start the
+  // recording (or reattach to one already running for this room; the start
+  // route is idempotent). Tries once per time a student arrives, never after
+  // the teacher pressed Stop, and never once they've left the lesson.
+  const remoteParticipants = useRemoteParticipants()
+  const studentInRoom = remoteParticipants.some((p) => {
+    try {
+      return JSON.parse(p.metadata || "{}").role === "student"
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    if (!AUTO_RECORD || role !== "teacher" || hasLeftLesson || !studentInRoom) return
+    if (isRecording || egressIdRef.current || isStartingRef.current || stoppedByTeacherRef.current) return
+    // A few seconds' grace so the recording doesn't open on a black tile while
+    // the student's camera comes up.
+    const timer = setTimeout(() => {
+      if (!stoppedByTeacherRef.current) startRecording({ auto: true })
+    }, 4000)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentInRoom, isRecording, hasLeftLesson, role])
 
   // Stop the egress if the tab closes mid-recording. (LiveKit also auto-stops the
   // egress when the room empties, so the file is written either way — this beacon
