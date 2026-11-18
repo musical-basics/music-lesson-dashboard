@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { EgressClient, EgressStatus } from "livekit-server-sdk";
 import { createClient } from "@supabase/supabase-js";
+import { notifyPianoStudio } from "@/lib/notify-piano-studio";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -107,6 +108,10 @@ export async function POST(request: Request) {
         }
 
         console.log(`[Recording/Egress] Stopped egress ${egressId}; saved ${key} (${fileSize} bytes)`);
+
+        // Hand the recording to the portal so it lands on the student's lesson.
+        // Runs after the response, so it never slows the stop (or an unload beacon).
+        after(() => notifyPianoStudio(studentId, publicUrl));
 
         return NextResponse.json({ url: publicUrl, success: true });
     } catch (error) {
