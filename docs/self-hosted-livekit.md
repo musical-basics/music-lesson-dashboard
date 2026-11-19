@@ -87,6 +87,31 @@ the Nov 19 test, against ~40% plus Chrome for the two-camera recording).
   (`lib/self-hosted.ts`), so it turns on by itself at the switch and off again on
   a rollback. `CLASSROOM_PIANO_CAMERA=off` turns it off on our server too.
 
+## Lessons logged by attendance (#795)
+
+On our server the classroom also records who is in each lesson room, so a
+lesson gets logged even when its recording failed:
+
+- LiveKit posts `participant_joined` / `participant_left` /
+  `participant_connection_aborted` / `room_finished` to `/api/livekit/webhook`;
+  `lib/attendance.ts` keeps one `classroom_attendance` row per connection (room
+  `lesson-<student uuid>` only, role teacher or student from the token
+  metadata; the recorder and guests are ignored). `room_finished` closes
+  anything still open.
+- When someone leaves (or the room closes) it calls the portal's
+  `/api/webhooks/classroom-attendance` (`PIANO_STUDIO_URL`, `PIANO_STUDIO_SECRET`).
+  The portal (`lib/classroom-attendance.ts`) sums the minutes teacher and student
+  were in the room together per lesson and, at 20+, logs that lesson the usual
+  way, as 'classroom_attendance' ("logged by attendance" in the morning email,
+  the weekly summary and the ledger). Same rules as the video auto-log: still
+  unlogged, from the last 7 days, matched by the slot that holds the start. One
+  log per lesson whichever comes first (`lesson_auto_logs` claim). Nothing is
+  decided while someone is still in the room. The portal's 30-minute classroom
+  cron sweeps the last 7 days too.
+- On only when `NEXT_PUBLIC_LIVEKIT_URL` is not `*.livekit.cloud`;
+  `CLASSROOM_ATTENDANCE=off` turns it off. Dry run: POST the portal webhook with
+  `{"studentId": "...", "dry": true}`, or the cron with `?dry=1`.
+
 ## Checks
 
 - `systemctl status livekit livekit-egress` on the VPS; `docker logs livekit-egress`.

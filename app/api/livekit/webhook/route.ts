@@ -9,16 +9,19 @@ import {
     type EgressInfo,
 } from "livekit-server-sdk";
 import { parseRecordingKey, saveRecordingRow, getPublicUrl, livekitHttpUrl } from "@/lib/recording-library";
-import { notifyPianoStudio } from "@/lib/notify-piano-studio";
+import { notifyPianoStudio, notifyPianoStudioAttendance } from "@/lib/notify-piano-studio";
+import { ATTENDANCE_EVENTS, recordAttendance } from "@/lib/attendance";
 import { ensurePianoCameraEgress, isTrackEgress, parsePianoKey } from "@/lib/piano-camera";
 import { pianoCameraRecordingEnabled } from "@/lib/self-hosted";
 
 // LiveKit (our self-hosted server, see docs/self-hosted-livekit.md) posts room and
-// egress events here. The one that matters is egress_ended: it arrives once the
-// MP4 is fully uploaded to R2, whether the teacher pressed Stop, closed the tab,
-// or the reaper stopped a forgotten recording. Saving the library row here means
-// a recording can no longer go missing because a browser didn't finish its stop
-// request, and the size is the real one (the Stop route usually saves 0).
+// egress events here. Participant events record attendance (#795) and
+// track_published starts the piano-camera file (#792). The main one is
+// egress_ended: it arrives once the MP4 is fully uploaded to R2, whether the
+// teacher pressed Stop, closed the tab, or the reaper stopped a forgotten
+// recording. Saving the library row here means a recording can no longer go
+// missing because a browser didn't finish its stop request, and the size is the
+// real one (the Stop route usually saves 0).
 
 export const maxDuration = 30;
 
@@ -39,6 +42,19 @@ export async function POST(request: Request) {
         );
     } catch {
         return NextResponse.json({ error: "invalid signature" }, { status: 401 });
+    }
+
+    // Who is in a lesson room (#795, lib/attendance.ts): the portal logs the
+    // lesson once teacher and student were in it together 20+ minutes.
+    if (ATTENDANCE_EVENTS.has(event.event)) {
+        try {
+            const outcome = await recordAttendance(event);
+            if (outcome?.notifyPortal) after(() => notifyPianoStudioAttendance(outcome.studentId));
+            return NextResponse.json({ ok: true, attendance: outcome ? "recorded" : "ignored" });
+        } catch (e) {
+            console.error(`[LiveKit/Webhook] attendance (${event.event}) not saved:`, e);
+            return NextResponse.json({ error: String(e) }, { status: 500 });
+        }
     }
 
     // The teacher's camera came up (or came back after a reload) while the
