@@ -44,7 +44,17 @@ networks fall back to TURN/TLS on 443 automatically.
 
 `NEXT_PUBLIC_*` values are baked in at build time: any change needs a redeploy.
 
-**Roll back to LiveKit Cloud:** copy the three `LIVEKIT_CLOUD_*` values back
+**Roll back to LiveKit Cloud, quick (#950, no redeploy):** set
+`classroom_settings.livekit_fallback` to `true` (the portal's server-down
+emails carry a one-tap link for it, `/api/classroom-switch`). `lib/livekit-target.ts`
+then sends new connections, tokens, recordings and Mark to the `LIVEKIT_CLOUD_*`
+server within about 30 seconds; the token answer turns auto-record off there;
+webhooks from either server are accepted. People already in a lesson reload.
+Back: the same link with `to=main` (offered in the "server is back" email), or
+set the value to `false`. Needs the three `LIVEKIT_CLOUD_*` values set; without
+them the setting does nothing.
+
+**Roll back for good:** copy the three `LIVEKIT_CLOUD_*` values back
 into `NEXT_PUBLIC_LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`, set
 `NEXT_PUBLIC_CLASSROOM_AUTO_RECORD=off` (Cloud's free minutes run out after
 about one lesson), redeploy.
