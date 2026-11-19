@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { EgressClient, EgressStatus, type EgressInfo } from "livekit-server-sdk";
 import { isTrackEgress, lessonKeyOf } from "@/lib/piano-camera";
-import { livekitHttpUrl, parseRecordingKey } from "@/lib/recording-library";
+import { parseRecordingKey } from "@/lib/recording-library";
+import { activeTarget } from "@/lib/livekit-target";
 
 // #874: the teacher's "Mark" button. Each tap saves the current moment of the
 // lesson video being recorded (seconds from its start) with an optional short
@@ -46,11 +47,11 @@ function isLive(e: EgressInfo) {
  * frame; the start stamp in the key (when Record was pressed) is the fallback.
  */
 async function currentRecording(roomName: string, clientKey?: string): Promise<{ key: string; startMs: number } | null> {
-    const apiKey = process.env.LIVEKIT_API_KEY;
-    const apiSecret = process.env.LIVEKIT_API_SECRET;
-    if (apiKey && apiSecret) {
+    // #950: the server in use (main, or LiveKit Cloud while the fallback is on).
+    const target = await activeTarget().catch(() => null);
+    if (target) {
         try {
-            const egresses = await new EgressClient(livekitHttpUrl(), apiKey, apiSecret).listEgress({ roomName, active: true });
+            const egresses = await new EgressClient(target.httpUrl, target.apiKey, target.apiSecret).listEgress({ roomName, active: true });
             const lesson = egresses.find(e => !isTrackEgress(e) && isLive(e));
             const key = lesson ? lessonKeyOf(lesson) : undefined;
             if (lesson && key) {

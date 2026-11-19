@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { EgressClient, RoomServiceClient } from "livekit-server-sdk";
 import { reapOrphanedEgresses } from "@/lib/egress-reaper";
+import { activeTarget } from "@/lib/livekit-target";
 
 // Sweep orphaned recordings. This also runs automatically before every new
 // recording (see ../start/route.ts); this endpoint exists so it can be put on a
@@ -10,24 +11,18 @@ import { reapOrphanedEgresses } from "@/lib/egress-reaper";
 //   GET  /api/recording/egress/reap  — what is running right now
 //   POST /api/recording/egress/reap  — stop everything orphaned
 
-function livekitHttpUrl() {
-    const url = process.env.NEXT_PUBLIC_LIVEKIT_URL || "";
-    return url.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
-}
-
-function clients() {
-    const apiKey = process.env.LIVEKIT_API_KEY;
-    const apiSecret = process.env.LIVEKIT_API_SECRET;
-    if (!apiKey || !apiSecret) return null;
-    const url = livekitHttpUrl();
+// #950: the main server, or LiveKit Cloud while the fallback is on.
+async function clients() {
+    const t = await activeTarget().catch(() => null);
+    if (!t) return null;
     return {
-        egress: new EgressClient(url, apiKey, apiSecret),
-        rooms: new RoomServiceClient(url, apiKey, apiSecret),
+        egress: new EgressClient(t.httpUrl, t.apiKey, t.apiSecret),
+        rooms: new RoomServiceClient(t.httpUrl, t.apiKey, t.apiSecret),
     };
 }
 
 export async function GET() {
-    const c = clients();
+    const c = await clients();
     if (!c) {
         return NextResponse.json({ error: "LiveKit credentials not configured" }, { status: 500 });
     }
@@ -51,7 +46,7 @@ export async function GET() {
 }
 
 export async function POST() {
-    const c = clients();
+    const c = await clients();
     if (!c) {
         return NextResponse.json({ error: "LiveKit credentials not configured" }, { status: 500 });
     }

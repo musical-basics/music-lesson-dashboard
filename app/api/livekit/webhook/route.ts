@@ -8,7 +8,8 @@ import {
     WebhookReceiver,
     type EgressInfo,
 } from "livekit-server-sdk";
-import { parseRecordingKey, saveRecordingRow, getPublicUrl, livekitHttpUrl } from "@/lib/recording-library";
+import { parseRecordingKey, saveRecordingRow, getPublicUrl } from "@/lib/recording-library";
+import { allTargets, type LiveKitTarget } from "@/lib/livekit-target";
 import { notifyPianoStudio, notifyPianoStudioAttendance } from "@/lib/notify-piano-studio";
 import { ATTENDANCE_EVENTS, recordAttendance } from "@/lib/attendance";
 import { ensurePianoCameraEgress, isTrackEgress, parsePianoKey } from "@/lib/piano-camera";
@@ -26,21 +27,32 @@ import { pianoCameraRecordingEnabled } from "@/lib/self-hosted";
 export const maxDuration = 30;
 
 export async function POST(request: Request) {
-    const apiKey = process.env.LIVEKIT_API_KEY;
-    const apiSecret = process.env.LIVEKIT_API_SECRET;
-    if (!apiKey || !apiSecret) {
+    // #950: events can come from the main server or LiveKit Cloud (the
+    // fallback), e.g. a recording that finishes on the one we just left. The
+    // event is checked against each server's keys; follow-up calls go to the
+    // server that sent it.
+    const targets = allTargets();
+    if (!targets.length) {
         return NextResponse.json({ error: "LiveKit credentials not configured" }, { status: 500 });
     }
 
     const body = await request.text();
     let event;
-    try {
-        // Verifies the signed JWT in the Authorization header and the body hash.
-        event = await new WebhookReceiver(apiKey, apiSecret).receive(
-            body,
-            request.headers.get("authorization") ?? undefined
-        );
-    } catch {
+    let source: LiveKitTarget | undefined;
+    for (const t of targets) {
+        try {
+            // Verifies the signed JWT in the Authorization header and the body hash.
+            event = await new WebhookReceiver(t.apiKey, t.apiSecret).receive(
+                body,
+                request.headers.get("authorization") ?? undefined
+            );
+            source = t;
+            break;
+        } catch {
+            // not this server's keys
+        }
+    }
+    if (!event || !source) {
         return NextResponse.json({ error: "invalid signature" }, { status: 401 });
     }
 
@@ -48,7 +60,7 @@ export async function POST(request: Request) {
     // lesson once teacher and student were in it together 20+ minutes.
     if (ATTENDANCE_EVENTS.has(event.event)) {
         try {
-            const outcome = await recordAttendance(event);
+            const outcome = await recordAttendance(event, source);
             if (outcome?.notifyPortal) after(() => notifyPianoStudioAttendance(outcome.studentId));
             return NextResponse.json({ ok: true, attendance: outcome ? "recorded" : "ignored" });
         } catch (e) {
@@ -68,19 +80,20 @@ export async function POST(request: Request) {
             role = undefined;
         }
         if (
-            pianoCameraRecordingEnabled() &&
+            (await pianoCameraRecordingEnabled(source)) &&
             event.room?.name &&
             role === "teacher" &&
             t?.type === TrackType.VIDEO &&
             t.source === TrackSource.CAMERA
         ) {
             const roomName = event.room.name;
-            const url = livekitHttpUrl();
+            const from = source;
             after(() =>
                 ensurePianoCameraEgress({
-                    egressClient: new EgressClient(url, apiKey, apiSecret),
-                    roomClient: new RoomServiceClient(url, apiKey, apiSecret),
+                    egressClient: new EgressClient(from.httpUrl, from.apiKey, from.apiSecret),
+                    roomClient: new RoomServiceClient(from.httpUrl, from.apiKey, from.apiSecret),
                     roomName,
+                    target: from,
                 })
             );
         }

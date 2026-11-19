@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { ParticipantInfo, WebhookEvent } from "livekit-server-sdk";
 import { attendanceTrackingEnabled } from "@/lib/self-hosted";
+import type { LiveKitTarget } from "@/lib/livekit-target";
 
 // #795: who is in each lesson room, so the Piano Studio portal can log a lesson
 // by attendance (teacher and student in the room together 20+ minutes) instead
@@ -56,8 +57,8 @@ export type AttendanceOutcome = { studentId: string; notifyPortal: boolean };
  * room or attendance is off; throws on a database error (the webhook answers
  * 500 so it shows in the logs).
  */
-export async function recordAttendance(event: WebhookEvent): Promise<AttendanceOutcome | null> {
-    if (!attendanceTrackingEnabled()) return null;
+export async function recordAttendance(event: WebhookEvent, target?: LiveKitTarget): Promise<AttendanceOutcome | null> {
+    if (!(await attendanceTrackingEnabled(target))) return null;
     const roomName = event.room?.name || "";
     const m = LESSON_ROOM_RE.exec(roomName);
     if (!m) return null;

@@ -39,6 +39,8 @@ interface LessonInterfaceProps {
   hasLeftLesson?: boolean
   onLeaveLesson?: () => void
   onRejoinLesson?: () => void
+  /** #950: false when the token came from LiveKit Cloud (the fallback), so auto-record stays off there. */
+  autoRecordAllowed?: boolean
 }
 
 // Recording starts on its own once the teacher and a student are both in the
@@ -46,7 +48,7 @@ interface LessonInterfaceProps {
 // turns that off and leaves only the Record button.
 const AUTO_RECORD = process.env.NEXT_PUBLIC_CLASSROOM_AUTO_RECORD !== "off"
 
-export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesson, onRejoinLesson }: LessonInterfaceProps) {
+export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesson, onRejoinLesson, autoRecordAllowed }: LessonInterfaceProps) {
   // Get the Role from URL
   const searchParams = useSearchParams()
   const role = searchParams.get('role')
@@ -434,7 +436,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     }
   })
   useEffect(() => {
-    if (!AUTO_RECORD || role !== "teacher" || hasLeftLesson || !studentInRoom) return
+    if (!AUTO_RECORD || autoRecordAllowed === false || role !== "teacher" || hasLeftLesson || !studentInRoom) return
     if (isRecording || egressIdRef.current || isStartingRef.current || stoppedByTeacherRef.current) return
     // A few seconds' grace so the recording doesn't open on a black tile while
     // the student's camera comes up.
@@ -443,7 +445,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
     }, 4000)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [studentInRoom, isRecording, hasLeftLesson, role])
+  }, [studentInRoom, isRecording, hasLeftLesson, role, autoRecordAllowed])
 
   // Stop the egress if the tab closes mid-recording. (LiveKit also auto-stops the
   // egress when the room empties, so the file is written either way — this beacon

@@ -1,3 +1,5 @@
+import { activeTarget, isCloudUrl, type LiveKitTarget } from "@/lib/livekit-target";
+
 // Which LiveKit server the classroom is on, and the features that only make
 // sense on our own one (docs/self-hosted-livekit.md).
 //
@@ -8,13 +10,21 @@
 // wss://<project>.livekit.cloud to wss://rtc.musicalbasics.com, and each has an
 // "off" env switch of its own.
 
-/** True unless NEXT_PUBLIC_LIVEKIT_URL points at LiveKit Cloud (or is unset). */
+/** True unless NEXT_PUBLIC_LIVEKIT_URL (the main server) points at LiveKit Cloud (or is unset). */
 export function isSelfHostedLiveKit(): boolean {
     const raw = process.env.NEXT_PUBLIC_LIVEKIT_URL || ""
-    if (!raw) return false
+    return !!raw && !isCloudUrl(raw)
+}
+
+/**
+ * #950: whether the server in use is our own. `target` = a specific server (the
+ * one a webhook came from); otherwise the active one (main, or LiveKit Cloud
+ * while the fallback is switched on).
+ */
+async function onOwnServer(target?: LiveKitTarget): Promise<boolean> {
+    if (target) return target.selfHosted
     try {
-        const host = new URL(raw).hostname.toLowerCase()
-        return !(host === "livekit.cloud" || host.endsWith(".livekit.cloud"))
+        return (await activeTarget()).selfHosted
     } catch {
         return false
     }
@@ -25,14 +35,14 @@ export function isSelfHostedLiveKit(): boolean {
  * Track Egress next to the two-camera recording. CLASSROOM_PIANO_CAMERA=off
  * turns it off on our server too.
  */
-export function pianoCameraRecordingEnabled(): boolean {
-    return isSelfHostedLiveKit() && process.env.CLASSROOM_PIANO_CAMERA !== "off"
+export async function pianoCameraRecordingEnabled(target?: LiveKitTarget): Promise<boolean> {
+    return process.env.CLASSROOM_PIANO_CAMERA !== "off" && (await onOwnServer(target))
 }
 
 /**
  * #795: record who is in each lesson room (participant webhooks) so the portal
  * can log a lesson by attendance. CLASSROOM_ATTENDANCE=off turns it off.
  */
-export function attendanceTrackingEnabled(): boolean {
-    return isSelfHostedLiveKit() && process.env.CLASSROOM_ATTENDANCE !== "off"
+export async function attendanceTrackingEnabled(target?: LiveKitTarget): Promise<boolean> {
+    return process.env.CLASSROOM_ATTENDANCE !== "off" && (await onOwnServer(target))
 }

@@ -32,6 +32,10 @@ function MusicStudioContent() {
 
   const [currentView, setCurrentView] = useState<View>(viewParam || "green-room")
   const [token, setToken] = useState("")
+  // #950: the server the token is for (main, or LiveKit Cloud while the fallback is on),
+  // and whether lessons there auto-record. Older token answers have neither.
+  const [serverUrl, setServerUrl] = useState<string | undefined>(undefined)
+  const [autoRecordHere, setAutoRecordHere] = useState<boolean | undefined>(undefined)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [hasLeftLesson, setHasLeftLesson] = useState(false)
   const [userChoices, setUserChoices] = useState<{
@@ -58,6 +62,8 @@ function MusicStudioContent() {
             `/api/token?room=${roomParam}&username=${nameParam}&role=${roleParam}&key=${keyParam}`
           )
           const data = await resp.json()
+          setServerUrl(data.url)
+          setAutoRecordHere(data.autoRecord)
           setToken(data.token)
         } catch (e) {
           console.error("Failed to auto-join:", e)
@@ -83,6 +89,8 @@ function MusicStudioContent() {
         alert(data.error)
         return
       }
+      setServerUrl(data.url)
+      setAutoRecordHere(data.autoRecord)
       setToken(data.token)
       setNeedsUserGesture(false)
     } catch (e) {
@@ -117,6 +125,8 @@ function MusicStudioContent() {
         alert(data.error)
         return
       }
+      setServerUrl(data.url)
+      setAutoRecordHere(data.autoRecord)
       setToken(data.token)
 
       // Auto-switch to lesson view
@@ -184,7 +194,7 @@ function MusicStudioContent() {
           video={videoProp}
           audio={audioProp}
           token={token}
-          serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
+          serverUrl={serverUrl || process.env.NEXT_PUBLIC_LIVEKIT_URL}
           connect={!!token}
           options={MUSIC_ROOM_OPTIONS}
           data-lk-theme="default"
@@ -223,6 +233,7 @@ function MusicStudioContent() {
               hasLeftLesson={hasLeftLesson}
               onLeaveLesson={() => setHasLeftLesson(true)}
               onRejoinLesson={() => setHasLeftLesson(false)}
+              autoRecordAllowed={autoRecordHere}
             />
           )}
           {currentView === "recital" && <RecitalStage />}

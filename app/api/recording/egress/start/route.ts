@@ -7,6 +7,7 @@ import {
     RoomServiceClient,
 } from "livekit-server-sdk";
 import { reapOrphanedEgresses } from "@/lib/egress-reaper";
+import { activeTarget } from "@/lib/livekit-target";
 import { ensurePianoCameraEgress, isTrackEgress, lessonKeyOf, r2S3Upload } from "@/lib/piano-camera";
 
 // Server-side recording via LiveKit Egress.
@@ -17,11 +18,6 @@ import { ensurePianoCameraEgress, isTrackEgress, lessonKeyOf, r2S3Upload } from 
 // no longer affects the recording (the failure mode that plagued the old
 // in-browser canvas + MediaRecorder approach).
 
-function livekitHttpUrl() {
-    const url = process.env.NEXT_PUBLIC_LIVEKIT_URL || "";
-    // EgressClient needs an http(s) URL, not the wss:// signalling URL.
-    return url.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
-}
 
 function getPublicUrl(key: string) {
     return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL?.replace(/\/$/, "")}/${key}`;
@@ -37,9 +33,9 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "roomName is required" }, { status: 400 });
         }
 
-        const apiKey = process.env.LIVEKIT_API_KEY;
-        const apiSecret = process.env.LIVEKIT_API_SECRET;
-        if (!apiKey || !apiSecret) {
+        // #950: the main server, or LiveKit Cloud while the fallback is on.
+        const target = await activeTarget().catch(() => null);
+        if (!target) {
             return NextResponse.json({ error: "LiveKit credentials not configured" }, { status: 500 });
         }
 
@@ -64,8 +60,8 @@ export async function POST(request: Request) {
         // instead of starting a duplicate. LiveKit projects have a low
         // concurrent-egress limit, and a duplicate would both burn it and
         // leave the original recording orphaned.
-        const egressClient = new EgressClient(livekitHttpUrl(), apiKey, apiSecret);
-        const roomClient = new RoomServiceClient(livekitHttpUrl(), apiKey, apiSecret);
+        const egressClient = new EgressClient(target.httpUrl, target.apiKey, target.apiSecret);
+        const roomClient = new RoomServiceClient(target.httpUrl, target.apiKey, target.apiSecret);
         try {
             const running = await egressClient.listEgress({ roomName, active: true });
             // The piano-camera file (lib/piano-camera.ts) is a second, track
@@ -87,7 +83,7 @@ export async function POST(request: Request) {
                     console.log(`[Recording/Egress] Reattaching to active egress ${active.egressId} for room ${roomName}`);
                     // A reload drops the teacher's camera track, which ends its
                     // piano-camera file; start one for the new track.
-                    after(() => ensurePianoCameraEgress({ egressClient, roomClient, roomName, lessonKey: existingKey }));
+                    after(() => ensurePianoCameraEgress({ egressClient, roomClient, roomName, lessonKey: existingKey, target }));
                     return NextResponse.json({
                         egressId: active.egressId,
                         key: existingKey,
@@ -151,7 +147,7 @@ export async function POST(request: Request) {
 
         // On our own LiveKit server, also save the teacher's piano camera on its
         // own (#792). After the response, so it never slows or fails the start.
-        after(() => ensurePianoCameraEgress({ egressClient, roomClient, roomName, lessonKey: key }));
+        after(() => ensurePianoCameraEgress({ egressClient, roomClient, roomName, lessonKey: key, target }));
 
         return NextResponse.json({
             egressId: info.egressId,
@@ -180,9 +176,8 @@ export async function POST(request: Request) {
             // cap is the LiveKit plan's, and waiting will not help.
             let occupancy = "";
             try {
-                const apiKey2 = process.env.LIVEKIT_API_KEY!;
-                const apiSecret2 = process.env.LIVEKIT_API_SECRET!;
-                const client = new EgressClient(livekitHttpUrl(), apiKey2, apiSecret2);
+                const t2 = await activeTarget();
+                const client = new EgressClient(t2.httpUrl, t2.apiKey, t2.apiSecret);
                 const stillActive = (await client.listEgress({ active: true })).filter(
                     e => e.status === EgressStatus.EGRESS_STARTING || e.status === EgressStatus.EGRESS_ACTIVE
                 );

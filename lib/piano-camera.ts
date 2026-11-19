@@ -10,6 +10,7 @@ import {
     type ParticipantInfo,
 } from "livekit-server-sdk";
 import { pianoCameraRecordingEnabled } from "@/lib/self-hosted";
+import type { LiveKitTarget } from "@/lib/livekit-target";
 
 // #792: the teacher's camera (pointed at the piano) saved on its own, at the
 // quality it was sent, next to the usual two-camera lesson video. It is a Track
@@ -107,8 +108,10 @@ export async function ensurePianoCameraEgress(opts: {
     roomName: string;
     /** Key of the two-camera recording, when the caller just started it. */
     lessonKey?: string;
+    /** #950: the server the clients point at (default: the active one). */
+    target?: LiveKitTarget;
 }): Promise<PianoStart> {
-    if (!pianoCameraRecordingEnabled()) return { started: false, reason: "off (not on our own LiveKit server)" };
+    if (!(await pianoCameraRecordingEnabled(opts.target))) return { started: false, reason: "off (not on our own LiveKit server)" };
     const { egressClient, roomClient, roomName } = opts;
     try {
         const active = (await egressClient.listEgress({ roomName, active: true })).filter(isLive);
@@ -141,8 +144,8 @@ export async function ensurePianoCameraEgress(opts: {
 }
 
 /** Stop this room's piano-camera egress(es) along with the lesson recording. Never throws. */
-export async function stopPianoCameraEgress(egressClient: EgressClient, roomName: string): Promise<string[]> {
-    if (!pianoCameraRecordingEnabled() || !roomName) return [];
+export async function stopPianoCameraEgress(egressClient: EgressClient, roomName: string, target?: LiveKitTarget): Promise<string[]> {
+    if (!roomName || !(await pianoCameraRecordingEnabled(target))) return [];
     const stopped: string[] = [];
     try {
         const active = (await egressClient.listEgress({ roomName, active: true })).filter(

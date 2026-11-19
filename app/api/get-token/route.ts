@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AccessToken } from 'livekit-server-sdk';
 import { createClient } from '@supabase/supabase-js';
+import { activeTarget } from '@/lib/livekit-target';
 
-const apiKey = process.env.LIVEKIT_API_KEY;
-const apiSecret = process.env.LIVEKIT_API_SECRET;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export async function POST(request: NextRequest) {
     try {
+        // #950: the main server, or LiveKit Cloud while the fallback is on.
+        const target = await activeTarget().catch(() => null);
+        const apiKey = target?.apiKey;
+        const apiSecret = target?.apiSecret;
         // Validate LiveKit credentials exist
-        if (!apiKey || !apiSecret) {
+        if (!target || !apiKey || !apiSecret) {
             return NextResponse.json(
                 { error: 'LiveKit API credentials not configured' },
                 { status: 500 }
@@ -125,6 +128,7 @@ export async function POST(request: NextRequest) {
 
             return NextResponse.json({
                 token: await at.toJwt(),
+                url: target.wsUrl,
                 roomName: finalRoomName,
                 isTeacher,
             });
@@ -156,6 +160,7 @@ export async function POST(request: NextRequest) {
 
             return NextResponse.json({
                 token: await at.toJwt(),
+                url: target.wsUrl,
                 roomName,
                 isTeacher: true,
             });
