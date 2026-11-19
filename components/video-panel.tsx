@@ -22,6 +22,7 @@ import {
     Headphones,
     ZoomIn,
     ZoomOut,
+    Bookmark,
 } from "lucide-react"
 import {
     Popover,
@@ -37,6 +38,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import type { AudioDiagnosticsReport } from "@/hooks/use-audio-diagnostics"
 
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import {
     Select,
@@ -80,6 +82,9 @@ export interface VideoPanelProps {
     isRecording?: boolean
     recordingStatus?: string
     onToggleRecording?: () => void
+    // Teacher-only "Mark" button (#874), shown while recording. Owned by
+    // LessonInterface like the recording itself.
+    markControls?: MarkControls
     // Mic input volume (1 = 100%), owned by LessonInterface so it survives remounts
     micGain?: number
     // Omitted when a student is under teacher control — the teacher drives the value
@@ -101,6 +106,25 @@ export interface VideoPanelProps {
     remoteAudioDiagnostics?: Record<string, AudioDiagnosticsReport & { receivedAt: number }>
 }
 
+
+/** #874: what the Mark button needs from LessonInterface. */
+export interface MarkControls {
+    onMark: () => void
+    onLabel: (label: string) => void
+    onRemove: () => void
+    /** The mark the last tap saved, null while saving or after an error. */
+    lastMark: { id: string; offsetSeconds: number } | null
+    /** "Marking...", or why the last tap failed. */
+    status: string
+}
+
+function formatOffset(totalSeconds: number): string {
+    const h = Math.floor(totalSeconds / 3600)
+    const m = Math.floor((totalSeconds % 3600) / 60)
+    const s = totalSeconds % 60
+    const mmss = `${h ? String(m).padStart(2, "0") : m}:${String(s).padStart(2, "0")}`
+    return h ? `${h}:${mmss}` : mmss
+}
 
 // ============================================================================
 // ZoomableTile - local-only zoom/pan for a participant tile
@@ -485,6 +509,7 @@ export function VideoPanel({
     isRecording: isRecordingProp,
     recordingStatus,
     onToggleRecording,
+    markControls,
     micGain = 1,
     onMicGainChange,
     studentMicGain = 1,
@@ -507,6 +532,8 @@ export function VideoPanel({
     const [isRecording, setIsRecording] = useState(false)
     const [uploadStatus, setUploadStatus] = useState("")
     const [studentDiagOpen, setStudentDiagOpen] = useState(false)
+    const [markOpen, setMarkOpen] = useState(false)
+    const [markLabel, setMarkLabel] = useState("")
 
     // Server-side recording fallback (used only when the parent doesn't own
     // recording state — all LessonInterface call sites pass controlled props).
@@ -1103,6 +1130,71 @@ export function VideoPanel({
                                 <CircleDot className={ctrlIcon} />
                             )}
                         </Button>
+
+                        {/* #874: mark a moment worth revisiting; the family can jump to it in their portal */}
+                        {effectiveIsRecording && markControls && (
+                            <Popover open={markOpen} onOpenChange={setMarkOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className={ctrlBtn}
+                                        title="Mark this moment (the family can jump to it)"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            setMarkLabel("")
+                                            markControls.onMark()
+                                            setMarkOpen(true)
+                                        }}
+                                    >
+                                        <Bookmark className={ctrlIcon} />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent side={controlsPosition === "right" ? "left" : "top"} className="w-64 p-3">
+                                    {markControls.lastMark ? (
+                                        <form
+                                            className="space-y-2"
+                                            onSubmit={(e) => {
+                                                e.preventDefault()
+                                                if (markLabel.trim()) markControls.onLabel(markLabel)
+                                                setMarkOpen(false)
+                                            }}
+                                        >
+                                            <p className="text-sm font-medium">
+                                                Marked at {formatOffset(markControls.lastMark.offsetSeconds)}
+                                            </p>
+                                            <Input
+                                                autoFocus
+                                                value={markLabel}
+                                                onChange={(e) => setMarkLabel(e.target.value)}
+                                                maxLength={40}
+                                                placeholder="Label (optional), e.g. left hand"
+                                                className="h-8 text-sm"
+                                            />
+                                            <div className="flex gap-2">
+                                                <Button type="submit" size="sm" className="h-7">
+                                                    {markLabel.trim() ? "Save" : "Done"}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-7"
+                                                    onClick={() => {
+                                                        markControls.onRemove()
+                                                        setMarkOpen(false)
+                                                    }}
+                                                >
+                                                    Undo
+                                                </Button>
+                                            </div>
+                                        </form>
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">{markControls.status || "Marking..."}</p>
+                                    )}
+                                </PopoverContent>
+                            </Popover>
+                        )}
                     </div>
                 )}
             </div>

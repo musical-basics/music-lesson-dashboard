@@ -30,7 +30,7 @@ import { SheetMusicPanel } from "@/components/sheet-music-panel"
 import { PieceSelector } from "@/components/piece-selector"
 import { Piece } from "@/types/piece"
 import { useRoomSync, ActivePiece, ViewMode, AspectRatio } from "@/hooks/use-room-sync"
-import { VideoAspectRatio, VideoPanel, AudioProcessingSettings } from "@/components/video-panel"
+import { VideoAspectRatio, VideoPanel, AudioProcessingSettings, type MarkControls } from "@/components/video-panel"
 import { PieceXmlEditor } from "@/components/piece-xml-editor"
 
 
@@ -367,6 +367,49 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
       await stopRecording()
     }
     onLeaveLesson?.()
+  }
+
+  // ---- "Mark" a moment of the recording (#874) ----
+  // Each tap saves the moment (seconds into the lesson video) on the server,
+  // which reads the start time from LiveKit; the family sees the marks under
+  // the video in their portal. The teacher's key from the lesson link proves
+  // it's the teacher.
+  const teacherKey = searchParams.get("key") || ""
+  const [lastMark, setLastMark] = useState<{ id: string; offsetSeconds: number } | null>(null)
+  const [markStatus, setMarkStatus] = useState("")
+  const markRequest = (method: "POST" | "PATCH" | "DELETE", body: object) =>
+    fetch("/api/recording/mark", {
+      method,
+      headers: { "Content-Type": "application/json", "x-teacher-key": teacherKey },
+      body: JSON.stringify(body),
+    })
+  const markControls: MarkControls = {
+    lastMark,
+    status: markStatus,
+    onMark: async () => {
+      setLastMark(null)
+      setMarkStatus("Marking...")
+      try {
+        const res = await markRequest("POST", { roomName: room?.name, studentId: studentId || "guest", key: egressKeyRef.current })
+        const data = await res.json().catch(() => ({} as { error?: string }))
+        if (!res.ok) throw new Error(data.error || `The mark was not saved (server returned ${res.status}).`)
+        setLastMark({ id: data.id, offsetSeconds: data.offsetSeconds })
+        setMarkStatus("")
+      } catch (err) {
+        console.error("[Mark] failed:", err)
+        setMarkStatus(err instanceof Error ? err.message : "The mark was not saved.")
+      }
+    },
+    onLabel: (label: string) => {
+      if (!lastMark) return
+      markRequest("PATCH", { id: lastMark.id, label }).catch((err) => console.error("[Mark] label not saved:", err))
+    },
+    onRemove: () => {
+      if (!lastMark) return
+      const id = lastMark.id
+      setLastMark(null)
+      markRequest("DELETE", { id }).catch((err) => console.error("[Mark] undo failed:", err))
+    },
   }
 
   const toggleRecording = () => {
@@ -829,6 +872,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       isRecording={isRecording}
                       recordingStatus={recordingStatus}
                       onToggleRecording={toggleRecording}
+                      markControls={isStudent ? undefined : markControls}
                       micGain={effectiveMicGain}
                       onMicGainChange={handleMicGainChange}
                       studentMicGain={!isStudent ? studentMicGain : undefined}
@@ -892,6 +936,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       isRecording={isRecording}
                       recordingStatus={recordingStatus}
                       onToggleRecording={toggleRecording}
+                      markControls={isStudent ? undefined : markControls}
                       micGain={effectiveMicGain}
                       onMicGainChange={handleMicGainChange}
                       studentMicGain={!isStudent ? studentMicGain : undefined}
@@ -927,6 +972,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                       isRecording={isRecording}
                       recordingStatus={recordingStatus}
                       onToggleRecording={toggleRecording}
+                      markControls={isStudent ? undefined : markControls}
                       micGain={effectiveMicGain}
                       onMicGainChange={handleMicGainChange}
                       studentMicGain={!isStudent ? studentMicGain : undefined}
@@ -974,6 +1020,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
                   isRecording={isRecording}
                   recordingStatus={recordingStatus}
                   onToggleRecording={toggleRecording}
+                  markControls={isStudent ? undefined : markControls}
                   layout={settings.dualLayout}
                   controlsPosition={isShortLandscape ? "right" : "bottom"}
                   micGain={effectiveMicGain}
