@@ -61,6 +61,32 @@ about one lesson), redeploy.
    real size if it did) and tells the Piano Studio portal to attach it to the
    lesson. One row per file: unique index on `classroom_recordings.url`.
 
+## Piano camera file (#792)
+
+On our server, whenever the lesson recording starts, the teacher's camera (the
+piano) is also saved on its own: a Track Egress (`lib/piano-camera.ts`), which
+writes the camera's own packets with no re-encoding (about 4% of one core in
+the Nov 19 test, against ~40% plus Chrome for the two-camera recording).
+
+- Video only: a track egress takes one track, so there is no sound in it. The
+  two-camera recording next to it has the audio.
+- Full quality = whatever the camera sends: the top simulcast layer, 1280x720
+  at up to 1.7 Mbps (browser VP8 gives `.webm`, H.264 gives `.mp4`). Measured:
+  1.43 Mbps, about 10.7 MB a minute (0.32 GB for a 30-minute lesson, 0.64 GB
+  for 60); at most ~12.8 MB a minute. It goes to R2 next to the lesson video.
+- File `<student>_<lesson start ms>_piano-<ms>.<ext>`; library row with
+  `kind = 'piano'` and `lesson_recording_url` = the two-camera video. The
+  library shows a "Piano camera" badge and links the two. The portal only uses
+  `kind = 'lesson'` rows (attach, auto-log, Dropbox copies).
+- Starts with the recording (`/api/recording/egress/start`), or when the
+  teacher's camera is published later or again after a reload (the
+  `track_published` webhook); stops with it (`/api/recording/egress/stop`), or
+  by itself when the teacher leaves; the reaper covers the rest. Its library row
+  is saved by the `egress_ended` webhook.
+- On only when `NEXT_PUBLIC_LIVEKIT_URL` is not `*.livekit.cloud`
+  (`lib/self-hosted.ts`), so it turns on by itself at the switch and off again on
+  a rollback. `CLASSROOM_PIANO_CAMERA=off` turns it off on our server too.
+
 ## Checks
 
 - `systemctl status livekit livekit-egress` on the VPS; `docker logs livekit-egress`.

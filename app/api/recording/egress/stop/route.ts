@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { EgressClient, EgressStatus } from "livekit-server-sdk";
 import { notifyPianoStudio } from "@/lib/notify-piano-studio";
 import { getPublicUrl, livekitHttpUrl, saveRecordingRow } from "@/lib/recording-library";
+import { stopPianoCameraEgress } from "@/lib/piano-camera";
 
 export async function POST(request: Request) {
     try {
@@ -15,6 +16,8 @@ export async function POST(request: Request) {
         // means the egress is never stopped at all. Save the row with size 0;
         // scripts/backfill-recording-metadata.mjs repairs it.
         const fast: boolean = body.fast === true;
+        // Lets the piano-camera file (lib/piano-camera.ts) stop with it.
+        let roomName: string | undefined = typeof body.roomName === "string" ? body.roomName : undefined;
 
         if (!egressId || !key) {
             return NextResponse.json({ error: "egressId and key are required" }, { status: 400 });
@@ -33,10 +36,12 @@ export async function POST(request: Request) {
         let fileSize = 0;
         try {
             const info = await egressClient.stopEgress(egressId);
+            roomName = roomName || info?.roomName;
             // If stop landed before the recording pipeline spun up, LiveKit
             // aborts and no file will ever be written — don't create a library
             // row pointing at a file that doesn't exist.
             if (info?.status === EgressStatus.EGRESS_ABORTED) {
+                if (roomName) await stopPianoCameraEgress(egressClient, roomName);
                 console.log(`[Recording/Egress] Egress ${egressId} aborted before start; skipping library row`);
                 return NextResponse.json({
                     success: true,
@@ -51,6 +56,10 @@ export async function POST(request: Request) {
         } catch (e) {
             console.error("[Recording/Egress] stopEgress error (continuing to record row):", e);
         }
+
+        // The piano camera's own file ends with the lesson recording. Its
+        // library row is saved by the egress_ended webhook.
+        if (roomName) await stopPianoCameraEgress(egressClient, roomName);
 
         const publicUrl = getPublicUrl(key);
 

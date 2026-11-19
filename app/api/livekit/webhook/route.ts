@@ -1,7 +1,17 @@
 import { NextResponse, after } from "next/server";
-import { EgressStatus, WebhookReceiver } from "livekit-server-sdk";
-import { parseRecordingKey, saveRecordingRow, getPublicUrl } from "@/lib/recording-library";
+import {
+    EgressClient,
+    EgressStatus,
+    RoomServiceClient,
+    TrackSource,
+    TrackType,
+    WebhookReceiver,
+    type EgressInfo,
+} from "livekit-server-sdk";
+import { parseRecordingKey, saveRecordingRow, getPublicUrl, livekitHttpUrl } from "@/lib/recording-library";
 import { notifyPianoStudio } from "@/lib/notify-piano-studio";
+import { ensurePianoCameraEgress, isTrackEgress, parsePianoKey } from "@/lib/piano-camera";
+import { pianoCameraRecordingEnabled } from "@/lib/self-hosted";
 
 // LiveKit (our self-hosted server, see docs/self-hosted-livekit.md) posts room and
 // egress events here. The one that matters is egress_ended: it arrives once the
@@ -31,11 +41,43 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "invalid signature" }, { status: 401 });
     }
 
+    // The teacher's camera came up (or came back after a reload) while the
+    // lesson is being recorded: start its piano-camera file (#792).
+    if (event.event === "track_published") {
+        const t = event.track;
+        let role: string | undefined;
+        try {
+            role = JSON.parse(event.participant?.metadata || "{}").role;
+        } catch {
+            role = undefined;
+        }
+        if (
+            pianoCameraRecordingEnabled() &&
+            event.room?.name &&
+            role === "teacher" &&
+            t?.type === TrackType.VIDEO &&
+            t.source === TrackSource.CAMERA
+        ) {
+            const roomName = event.room.name;
+            const url = livekitHttpUrl();
+            after(() =>
+                ensurePianoCameraEgress({
+                    egressClient: new EgressClient(url, apiKey, apiSecret),
+                    roomClient: new RoomServiceClient(url, apiKey, apiSecret),
+                    roomName,
+                })
+            );
+        }
+        return NextResponse.json({ ok: true });
+    }
+
     if (event.event !== "egress_ended" || !event.egressInfo) {
         return NextResponse.json({ ok: true, ignored: event.event });
     }
 
     const info = event.egressInfo;
+    if (isTrackEgress(info)) return savePianoCameraFile(info);
+
     const file = info.fileResults?.[0];
     const key = file?.filename?.split("/").pop();
 
@@ -70,4 +112,37 @@ export async function POST(request: Request) {
     after(() => notifyPianoStudio(studentId, getPublicUrl(key)));
 
     return NextResponse.json({ ok: true, saved: true, inserted: result.inserted });
+}
+
+/**
+ * The teacher's piano camera alone (#792, lib/piano-camera.ts) finished: add it
+ * to the library next to its lesson video. The portal is not told: only the
+ * two-camera video goes on the lesson.
+ */
+async function savePianoCameraFile(info: EgressInfo) {
+    const file = info.fileResults?.[0] ?? (info.result.case === "file" ? info.result.value : undefined);
+    const key = file?.filename?.split("/").pop();
+    const parsed = key ? parsePianoKey(key) : null;
+    if (info.status !== EgressStatus.EGRESS_COMPLETE || !key || !parsed || !Number(file?.size || 0)) {
+        console.log(
+            `[LiveKit/Webhook] piano-camera egress ${info.egressId} ended ${EgressStatus[info.status]}` +
+                ` (${key || "no file"}); nothing saved` + (info.error ? `: ${info.error}` : "")
+        );
+        return NextResponse.json({ ok: true, saved: false });
+    }
+    const result = await saveRecordingRow({
+        key,
+        studentId: parsed.studentId,
+        sizeBytes: Number(file?.size || 0),
+        piano: { lessonUrl: getPublicUrl(parsed.lessonKey), startMs: parsed.pianoStartMs },
+    });
+    if (result.error) {
+        console.error(`[LiveKit/Webhook] could not save piano camera ${key}: ${result.error}`);
+        return NextResponse.json({ error: result.error }, { status: 500 });
+    }
+    console.log(
+        `[LiveKit/Webhook] piano camera ${info.egressId} complete: ${key} (${file?.size ?? 0} bytes), ` +
+            (result.inserted ? "row added" : "row already there")
+    );
+    return NextResponse.json({ ok: true, saved: true, inserted: result.inserted, kind: "piano" });
 }

@@ -1,13 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import {
     EgressClient,
     EgressStatus,
     EncodedFileOutput,
     EncodedFileType,
     RoomServiceClient,
-    S3Upload,
 } from "livekit-server-sdk";
 import { reapOrphanedEgresses } from "@/lib/egress-reaper";
+import { ensurePianoCameraEgress, isTrackEgress, lessonKeyOf, r2S3Upload } from "@/lib/piano-camera";
 
 // Server-side recording via LiveKit Egress.
 //
@@ -65,9 +65,14 @@ export async function POST(request: Request) {
         // concurrent-egress limit, and a duplicate would both burn it and
         // leave the original recording orphaned.
         const egressClient = new EgressClient(livekitHttpUrl(), apiKey, apiSecret);
+        const roomClient = new RoomServiceClient(livekitHttpUrl(), apiKey, apiSecret);
         try {
             const running = await egressClient.listEgress({ roomName, active: true });
-            const active = running.find(e => e.status === EgressStatus.EGRESS_STARTING || e.status === EgressStatus.EGRESS_ACTIVE);
+            // The piano-camera file (lib/piano-camera.ts) is a second, track
+            // egress in the same room; it is never the lesson recording.
+            const active = running.find(e =>
+                !isTrackEgress(e) &&
+                (e.status === EgressStatus.EGRESS_STARTING || e.status === EgressStatus.EGRESS_ACTIVE));
             if (active) {
                 // Recover the object key from whichever output field this egress
                 // actually carries. Older/other egress shapes report the file under
@@ -76,15 +81,13 @@ export async function POST(request: Request) {
                 // would fall through and try to start a SECOND egress for the same
                 // room — which LiveKit rejects on the concurrent-egress limit, so
                 // every retry click would fail identically.
-                const existingKey =
-                    (active.request?.case === "roomComposite"
-                        ? active.request.value.fileOutputs?.[0]?.filepath
-                        : undefined) ||
-                    active.fileResults?.[0]?.filename ||
-                    undefined;
+                const existingKey = lessonKeyOf(active);
 
                 if (existingKey) {
                     console.log(`[Recording/Egress] Reattaching to active egress ${active.egressId} for room ${roomName}`);
+                    // A reload drops the teacher's camera track, which ends its
+                    // piano-camera file; start one for the new track.
+                    after(() => ensurePianoCameraEgress({ egressClient, roomClient, roomName, lessonKey: existingKey }));
                     return NextResponse.json({
                         egressId: active.egressId,
                         key: existingKey,
@@ -118,17 +121,7 @@ export async function POST(request: Request) {
         const output = new EncodedFileOutput({
             fileType: EncodedFileType.MP4,
             filepath: key,
-            output: {
-                case: "s3",
-                value: new S3Upload({
-                    accessKey: process.env.R2_ACCESS_KEY_ID,
-                    secret: process.env.R2_SECRET_ACCESS_KEY,
-                    bucket: process.env.R2_BUCKET_NAME,
-                    region: "auto",
-                    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-                    forcePathStyle: true,
-                }),
-            },
+            output: { case: "s3", value: r2S3Upload() },
         });
 
         // Free any slots held by recordings whose lesson is long over before we
@@ -136,7 +129,6 @@ export async function POST(request: Request) {
         // from permanently costing a slot and failing every later recording
         // with "recording limit is currently maxed out".
         try {
-            const roomClient = new RoomServiceClient(livekitHttpUrl(), apiKey, apiSecret);
             const reaped = await reapOrphanedEgresses(egressClient, roomClient, roomName);
             if (reaped.stopped.length) {
                 console.log(`[Recording/Egress] Reaped ${reaped.stopped.length} orphaned egress(es) before start`);
@@ -156,6 +148,10 @@ export async function POST(request: Request) {
         );
 
         console.log(`[Recording/Egress] Started egress ${info.egressId} for room ${roomName} -> ${key}`);
+
+        // On our own LiveKit server, also save the teacher's piano camera on its
+        // own (#792). After the response, so it never slows or fails the start.
+        after(() => ensurePianoCameraEgress({ egressClient, roomClient, roomName, lessonKey: key }));
 
         return NextResponse.json({
             egressId: info.egressId,

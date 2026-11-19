@@ -338,7 +338,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
       const res = await fetch("/api/recording/egress/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ egressId, key, studentId: studentId || "guest", teacherId }),
+        body: JSON.stringify({ egressId, key, studentId: studentId || "guest", teacherId, roomName: room?.name }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -413,6 +413,7 @@ export function LessonInterface({ studentId, hasLeftLesson = false, onLeaveLesso
           key: egressKeyRef.current,
           studentId: studentId || "guest",
           teacherId,
+          roomName: room?.name,
           // Skip the server's R2 size probe: an unload request that blocks for
           // ~9s gets killed, and a killed request never stops the egress.
           fast: true,

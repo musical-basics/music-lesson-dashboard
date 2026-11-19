@@ -29,9 +29,9 @@ export function parseRecordingKey(key: string): { studentId: string; startMs: nu
     return m ? { studentId: m[1], startMs: Number(m[2]) } : null;
 }
 
-function lessonTitle(startMs: number) {
+function lessonTitle(startMs: number, prefix = "Lesson") {
     // Same "Lesson - M/D/YYYY" shape as every existing row, dated in the studio's zone.
-    return `Lesson - ${new Date(startMs).toLocaleDateString("en-US", { timeZone: "America/New_York" })}`;
+    return `${prefix} - ${new Date(startMs).toLocaleDateString("en-US", { timeZone: "America/New_York" })}`;
 }
 
 export type SaveResult = { inserted: boolean; error?: string };
@@ -41,6 +41,12 @@ export async function saveRecordingRow(opts: {
     studentId: string;
     teacherId?: string;
     sizeBytes?: number;
+    /**
+     * The teacher's piano camera alone (#792, lib/piano-camera.ts), saved next
+     * to the two-camera lesson video at `lessonUrl`. Rows default to kind
+     * 'lesson'; only those go on a lesson in the portal.
+     */
+    piano?: { lessonUrl: string; startMs: number };
 }): Promise<SaveResult> {
     const url = getPublicUrl(opts.key);
     const size = Math.max(0, Math.round(opts.sizeBytes || 0));
@@ -63,13 +69,14 @@ export async function saveRecordingRow(opts: {
         return { inserted: false };
     }
 
-    const startMs = parseRecordingKey(opts.key)?.startMs ?? Date.now();
+    const startMs = opts.piano?.startMs ?? parseRecordingKey(opts.key)?.startMs ?? Date.now();
     const { error } = await supabase.from("classroom_recordings").insert({
         student_id: opts.studentId,
         teacher_id: opts.teacherId || "teacher-1",
-        filename: lessonTitle(startMs),
+        filename: lessonTitle(startMs, opts.piano ? "Piano camera" : "Lesson"),
         url,
         size_bytes: size,
+        ...(opts.piano ? { kind: "piano", lesson_recording_url: opts.piano.lessonUrl } : {}),
     });
     // 23505 = the other caller inserted the same URL a moment earlier.
     if (error && error.code !== "23505") return { inserted: false, error: error.message };

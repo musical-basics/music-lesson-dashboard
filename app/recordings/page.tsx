@@ -28,6 +28,10 @@ type Recording = {
     size_bytes: number
     duration_seconds?: number | null
     created_at: string
+    // 'piano' = the teacher's piano camera alone, no sound (#792), saved next
+    // to the two-camera lesson video at lesson_recording_url.
+    kind?: string | null
+    lesson_recording_url?: string | null
 }
 
 // Metadata the browser can read straight off the file, so the grid shows real
@@ -245,6 +249,12 @@ export default function RecordingsPage() {
 
     const totalSize = visible.reduce((sum, r) => sum + (r.size_bytes || 0), 0)
 
+    // A lesson video and its piano-camera file point at each other.
+    const companions = (rec: Recording): Recording[] =>
+        rec.kind === "piano"
+            ? recordings.filter((r) => r.kind !== "piano" && r.url === rec.lesson_recording_url)
+            : recordings.filter((r) => r.kind === "piano" && r.lesson_recording_url === rec.url)
+
     return (
         <div className="min-h-screen bg-zinc-950 text-white flex flex-col md:flex-row font-sans">
             <DashboardSidebar />
@@ -362,7 +372,18 @@ export default function RecordingsPage() {
                                         {formatBytes(selectedVideo.size_bytes) && (
                                             <span>{formatBytes(selectedVideo.size_bytes)}</span>
                                         )}
+                                        {selectedVideo.kind === "piano" && <span>Piano camera only, no sound</span>}
                                     </span>
+                                    {companions(selectedVideo).map((c) => (
+                                        <button
+                                            key={c.id}
+                                            onClick={() => setSelectedVideo(c)}
+                                            className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300"
+                                        >
+                                            <Video className="w-4 h-4" />
+                                            {c.kind === "piano" ? "Piano camera" : "Lesson video"}
+                                        </button>
+                                    ))}
                                     <a
                                         href={selectedVideo.url}
                                         download
@@ -489,6 +510,11 @@ export default function RecordingsPage() {
                                             {formatBytes(recording.size_bytes) && (
                                                 <div className="absolute bottom-2 left-2 bg-black/70 px-1.5 py-0.5 rounded text-[11px] text-zinc-300 z-10">
                                                     {formatBytes(recording.size_bytes)}
+                                                </div>
+                                            )}
+                                            {recording.kind === "piano" && (
+                                                <div className="absolute top-2 left-2 bg-indigo-600/90 px-1.5 py-0.5 rounded text-[11px] font-medium text-white z-10">
+                                                    Piano camera
                                                 </div>
                                             )}
                                         </div>
