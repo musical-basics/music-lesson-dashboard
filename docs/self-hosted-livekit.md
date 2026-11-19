@@ -112,6 +112,11 @@ lesson gets logged even when its recording failed:
   `CLASSROOM_ATTENDANCE=off` turns it off. Dry run: POST the portal webhook with
   `{"studentId": "...", "dry": true}`, or the cron with `?dry=1`.
 
+## Upkeep on the server (#949, #951)
+
+- **Health report (#949):** `studio-report.timer` runs `/opt/livekit/studio-report.sh` every 5 minutes. It POSTs `{ livekit, egress, diskPct, diskTotalGb }` (from `systemctl is-active` and `df /`) to the portal's `/api/webhooks/classroom-server-report` with header `x-report-secret` (`STUDIO_REPORT_SECRET` in `/opt/livekit/secrets.env`, the portal's `CLASSROOM_SERVER_REPORT_SECRET`; it can only send this report). The portal's 5-minute `classroom-server-watch` emails once when the recorder or call server stops, when the disk passes 85% (cleared below 80%), or when reports stop for 20 minutes, and once when each is fixed. Recorder and stale alerts only fire once `CLASSROOM_SERVER_HEALTH_URL` is set (the switch); the disk alert always. Check: `systemctl list-timers studio-report.timer`, `journalctl -u studio-report.service -n 5`.
+- **Security updates (#951):** unattended-upgrades runs once a week, Sunday 4:00am America/New_York (drop-ins `apt-daily-upgrade.timer.d/studio-sunday.conf`, `apt-daily.timer.d/studio-sunday.conf` at 3:30am), and restarts the server right after only when an update needs it (`/etc/apt/apt.conf.d/52studio-reboot`). livekit, livekit-egress, redis, docker, nginx, streamflow and tailscale all start on boot.
+
 ## Checks
 
 - `systemctl status livekit livekit-egress` on the VPS; `docker logs livekit-egress`.
