@@ -28,7 +28,7 @@ type Recording = {
     size_bytes: number
     duration_seconds?: number | null
     created_at: string
-    // 'piano' = the teacher's piano camera alone, no sound (#792), saved next
+    // 'piano' = the teacher's piano camera alone (#792; with his mic's sound since #1100), saved next
     // to the two-camera lesson video at lesson_recording_url.
     kind?: string | null
     lesson_recording_url?: string | null
@@ -396,7 +396,7 @@ export default function RecordingsPage() {
                                         {formatBytes(selectedVideo.size_bytes) && (
                                             <span>{formatBytes(selectedVideo.size_bytes)}</span>
                                         )}
-                                        {selectedVideo.kind === "piano" && <span>Piano camera only, no sound</span>}
+                                        {selectedVideo.kind === "piano" && <span>Piano camera{/\.webm$/i.test(selectedVideo.url) ? ", no sound" : ""}</span>}
                                     </span>
                                     {companions(selectedVideo).map((c) => (
                                         <button

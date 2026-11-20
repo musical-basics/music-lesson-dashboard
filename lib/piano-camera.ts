@@ -2,6 +2,9 @@ import {
     DirectFileOutput,
     EgressClient,
     EgressStatus,
+    EncodedFileOutput,
+    EncodedFileType,
+    EncodingOptionsPreset,
     RoomServiceClient,
     S3Upload,
     TrackSource,
@@ -12,19 +15,23 @@ import {
 import { pianoCameraRecordingEnabled } from "@/lib/self-hosted";
 import type { LiveKitTarget } from "@/lib/livekit-target";
 
-// #792: the teacher's camera (pointed at the piano) saved on its own, at the
-// quality it was sent, next to the usual two-camera lesson video. It is a Track
-// Egress: LiveKit writes the camera's own packets into a file without decoding
-// or re-encoding them, so it costs almost no CPU. A track egress takes exactly
-// one track, so this file is VIDEO ONLY (no sound); the two-camera recording
-// has the audio.
+// #792: the teacher's camera (pointed at the piano) saved on its own, next to
+// the usual two-camera lesson video.
+//
+// Since #1100 it carries the teacher's microphone too, so clips cut from it
+// have the piano's sound: a Track Composite Egress of the camera video plus the
+// teacher's mic audio, encoded to H.264 + AAC (720p30) in an .mp4. That costs
+// more CPU than the old Track Egress (which copied the camera's packets, video
+// only, about 4% of a core), so the egress server's CPU budget decides: if it
+// will not take it, the lesson recording itself is unaffected. When the teacher
+// has no mic up it falls back to the old video-only Track Egress.
 //
 // Only on our own LiveKit server (lib/self-hosted.ts): on LiveKit Cloud it
 // would double the recording minutes the free plan no longer has.
 //
 // File: `<lesson key without .mp4>_piano-<ms it started>.<ext>`, e.g.
-// `<student>_1763500000000_piano-1763500004000.webm`. The extension follows
-// the camera's codec (VP8, the browser default, gives .webm; H.264 gives .mp4).
+// `<student>_1763500000000_piano-1763500004000.mp4`. With sound it is always
+// .mp4; the video-only fallback follows the camera's codec (VP8 gives .webm).
 // The `-` before the stamp keeps it from looking like a lesson file
 // (`<student>_<13 digits>.mp4`) to anything that only reads names.
 
@@ -50,8 +57,9 @@ export function parsePianoKey(key: string): PianoKey | null {
     };
 }
 
+/** A piano-camera egress: the old video-only Track Egress or, since #1100, the Track Composite with the mic. */
 export function isTrackEgress(info: EgressInfo): boolean {
-    return info.request.case === "track";
+    return info.request.case === "track" || info.request.case === "trackComposite";
 }
 
 function isLive(e: EgressInfo) {
@@ -126,16 +134,33 @@ export async function ensurePianoCameraEgress(opts: {
         if (!lessonKey) return { started: false, reason: "no lesson recording running" };
 
         const participants = await roomClient.listParticipants(roomName);
-        const camera = participants
-            .filter((p) => roleOf(p) === "teacher")
-            .flatMap((p) => p.tracks)
-            .find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
+        const teacherTracks = participants.filter((p) => roleOf(p) === "teacher").flatMap((p) => p.tracks);
+        const camera = teacherTracks.find((t) => t.type === TrackType.VIDEO && t.source === TrackSource.CAMERA);
         if (!camera) return { started: false, reason: "teacher camera not published" };
+        const mic = teacherTracks.find((t) => t.type === TrackType.AUDIO && t.source === TrackSource.MICROPHONE);
 
-        const key = `${lessonKey.replace(/\.mp4$/i, "")}_piano-${Date.now()}.${extensionFor(camera.mimeType)}`;
+        const base = `${lessonKey.replace(/\.mp4$/i, "")}_piano-${Date.now()}`;
+        if (mic) {
+            // Camera + mic in one .mp4 (#1100). If the egress server will not take
+            // it (CPU budget), the video-only file below is still saved.
+            const key = `${base}.mp4`;
+            try {
+                const output = new EncodedFileOutput({ fileType: EncodedFileType.MP4, filepath: key, output: { case: "s3", value: r2S3Upload() } });
+                const info = await egressClient.startTrackCompositeEgress(roomName, output, {
+                    videoTrackId: camera.sid,
+                    audioTrackId: mic.sid,
+                    encodingOptions: EncodingOptionsPreset.H264_720P_30,
+                });
+                console.log(`[PianoCamera] Started ${info.egressId} for ${roomName} (camera + mic) -> ${key}`);
+                return { started: true, egressId: info.egressId, key };
+            } catch (e) {
+                console.error(`[PianoCamera] With-sound recording refused for ${roomName}, saving video only:`, e);
+            }
+        }
+        const key = `${base}.${extensionFor(camera.mimeType)}`;
         const output = new DirectFileOutput({ filepath: key, output: { case: "s3", value: r2S3Upload() } });
         const info = await egressClient.startTrackEgress(roomName, output, camera.sid);
-        console.log(`[PianoCamera] Started ${info.egressId} for ${roomName} (${camera.mimeType} ${camera.width}x${camera.height}) -> ${key}`);
+        console.log(`[PianoCamera] Started ${info.egressId} for ${roomName} (${camera.mimeType} ${camera.width}x${camera.height}, no mic up: video only) -> ${key}`);
         return { started: true, egressId: info.egressId, key };
     } catch (e) {
         console.error(`[PianoCamera] Could not start for ${roomName}:`, e);

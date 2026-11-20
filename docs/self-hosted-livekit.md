@@ -74,16 +74,22 @@ about one lesson), redeploy.
 ## Piano camera file (#792)
 
 On our server, whenever the lesson recording starts, the teacher's camera (the
-piano) is also saved on its own: a Track Egress (`lib/piano-camera.ts`), which
-writes the camera's own packets with no re-encoding (about 4% of one core in
-the Nov 19 test, against ~40% plus Chrome for the two-camera recording).
+piano) is also saved on its own (`lib/piano-camera.ts`).
 
-- Video only: a track egress takes one track, so there is no sound in it. The
-  two-camera recording next to it has the audio.
-- Full quality = whatever the camera sends: the top simulcast layer, 1280x720
-  at up to 1.7 Mbps (browser VP8 gives `.webm`, H.264 gives `.mp4`). Measured:
-  1.43 Mbps, about 10.7 MB a minute (0.32 GB for a 30-minute lesson, 0.64 GB
-  for 60); at most ~12.8 MB a minute. It goes to R2 next to the lesson video.
+- With sound since #1100 (Nov 20, 2026): a Track Composite Egress of the
+  teacher's camera plus his microphone, encoded to H.264 720p30 + AAC in an
+  `.mp4`, so clips cut from it play with the piano's sound. Measured on the
+  VPS (test room, livestream running): the egress container at ~60-70% of one
+  core for this file alone, ~160% together with the two-camera recording
+  (inside its 2.5-core cap); about 0.4 MB a second. Both were admitted with
+  `room_composite_cpu_cost: 1.5` and the default track-composite cost.
+- If the egress server refuses it (CPU budget) or the teacher has no mic up,
+  the old video-only Track Egress is saved instead: the camera's own packets,
+  no re-encoding (about 4% of one core), the top simulcast layer 1280x720 at up
+  to 1.7 Mbps (browser VP8 gives `.webm`, H.264 gives `.mp4`), about 10.7 MB a
+  minute. The two-camera recording next to it always has the audio.
+- It goes to R2 next to the lesson video. Off on LiveKit Cloud (main or the
+  #950 fallback): nothing changes there.
 - File `<student>_<lesson start ms>_piano-<ms>.<ext>`; library row with
   `kind = 'piano'` and `lesson_recording_url` = the two-camera video. The
   library shows a "Piano camera" badge and links the two. The portal only uses
