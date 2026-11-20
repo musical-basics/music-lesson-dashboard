@@ -58,6 +58,29 @@ const formatDuration = (seconds?: number | null) => {
     return `${m}:${String(s).padStart(2, "0")}`
 }
 
+// Videos older than 60 days move from R2 to their copy in the student's Dropbox
+// folder (the portal's #1020) and their url becomes a Dropbox share link: play
+// it from Dropbox's direct host, and download it with dl=1.
+const isDropbox = (url: string) => /^https:\/\/(www\.)?dropbox\.com\//i.test(url)
+const dropboxLink = (url: string, mode: "play" | "download") => {
+    if (!isDropbox(url)) return url
+    try {
+        const u = new URL(url)
+        if (mode === "play") {
+            u.hostname = "dl.dropboxusercontent.com"
+            u.searchParams.set("raw", "1")
+            u.searchParams.delete("dl")
+        } else {
+            u.searchParams.set("dl", "1")
+        }
+        return u.toString()
+    } catch {
+        return url
+    }
+}
+const playUrl = (url: string) => dropboxLink(url, "play")
+const downloadUrl = (url: string) => dropboxLink(url, "download")
+
 const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString("en-US", {
         year: "numeric",
@@ -85,8 +108,9 @@ function useProbe(recordings: Recording[]) {
                 const video = document.createElement("video")
                 video.preload = "metadata"
                 video.muted = true
-                video.crossOrigin = "anonymous"
-                video.src = rec.url
+                // Dropbox sends no CORS header: load it plain (duration only, no poster).
+                if (!isDropbox(rec.url)) video.crossOrigin = "anonymous"
+                video.src = playUrl(rec.url)
 
                 let settled = false
                 const finish = (value: Probed | "failed") => {
@@ -354,7 +378,7 @@ export default function RecordingsPage() {
                                 <div className="aspect-video bg-black">
                                     <video
                                         key={selectedVideo.id}
-                                        src={selectedVideo.url}
+                                        src={playUrl(selectedVideo.url)}
                                         controls
                                         autoPlay
                                         playsInline
@@ -385,7 +409,7 @@ export default function RecordingsPage() {
                                         </button>
                                     ))}
                                     <a
-                                        href={selectedVideo.url}
+                                        href={downloadUrl(selectedVideo.url)}
                                         download
                                         className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300"
                                     >
