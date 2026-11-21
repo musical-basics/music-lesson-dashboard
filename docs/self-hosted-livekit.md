@@ -6,6 +6,38 @@ refuses new recordings) and Lionel chose not to pay $50/month for 600, so the
 server and the recorder (Egress) run on the Hetzner VPS that already hosts the
 24/7 livestream. Recordings are unlimited and cost nothing extra.
 
+## Switched on 2026-11-21
+
+Families' classroom calls and recordings run on this server since Saturday
+2026-11-21 (no lessons that day), after DNS for `rtc.` and `turn.` (todo #681).
+
+1. Certificate: `certbot certonly --nginx --cert-name rtc.musicalbasics.com -d rtc.musicalbasics.com -d turn.musicalbasics.com`.
+   `certbot renew --dry-run` passes for it and for the stream cert with the new layout.
+2. nginx: streamflow's two `listen ... 443 ssl` lines became
+   `listen 127.0.0.1:8443 ssl proxy_protocol default_server;` (default_server keeps
+   it the answer for unknown names, as before) plus `set_real_ip_from 127.0.0.1;
+   real_ip_header proxy_protocol;`; `livekit-rtc` copied into sites-enabled;
+   `/etc/nginx/stream-livekit.conf` included at the top of nginx.conf.
+   `stream.musicalbasics.com/health` answered 200 before and after, and its access
+   log still shows real client IPs. Originals: `/opt/livekit/nginx-staged/*.orig`;
+   `/opt/livekit/nginx-staged/restore.sh` puts them back and reloads.
+3. Classroom Vercel env, production only: the three LiveKit values now point at
+   this server; the old Cloud values moved to `LIVEKIT_CLOUD_*`;
+   `NEXT_PUBLIC_CLASSROOM_AUTO_RECORD` removed (auto-record on); redeployed.
+   Development and Preview still have the Cloud values.
+4. Tests, test student's room only, before and after the env change (first a
+   local dev server pointed at this server, then production): two headless
+   Chromes, both connected through TURN over TLS on 443 (`turns:turn.musicalbasics.com:443`,
+   one forced relay-only); video and audio both ways; auto-record started when
+   the student joined; the lesson file and the piano camera file (camera + mic)
+   landed in R2; `egress_ended` saved both library rows; attendance rows opened
+   and closed; the portal answered 200 to the recording and attendance calls;
+   nothing logged and no credits touched. Test files and rows removed afterwards.
+   The `livekit_fallback` flag was flipped on and off once: production handed
+   out LiveKit Cloud (auto-record off) and then this server again.
+5. Portal: `CLASSROOM_SERVER_HEALTH_URL=https://rtc.musicalbasics.com/`,
+   redeployed; the 5-minute watch answers "rtc.musicalbasics.com answered OK".
+
 ## What runs where (on the VPS)
 
 | Piece | How | Notes |
@@ -41,6 +73,11 @@ networks fall back to TURN/TLS on 443 automatically.
 - `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` = the self-hosted pair
 - `LIVEKIT_CLOUD_URL` / `LIVEKIT_CLOUD_API_KEY` / `LIVEKIT_CLOUD_API_SECRET` = the old Cloud values, kept for rollback
 - `NEXT_PUBLIC_CLASSROOM_AUTO_RECORD` = unset (on) or `off`
+
+These are production-only records; Development and Preview keep the Cloud
+values. `vercel env rm NAME production` deletes a record shared by several
+environments as a whole, so change one environment's value through the Vercel
+dashboard or API (narrow the record's targets), not `env rm`.
 
 `NEXT_PUBLIC_*` values are baked in at build time: any change needs a redeploy.
 
